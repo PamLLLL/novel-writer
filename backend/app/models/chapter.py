@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -16,6 +16,7 @@ class Chapter(Base, UUIDMixin, TimestampMixin):
     word_target: Mapped[int] = mapped_column(Integer, default=3000)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(50), default="pending")
+    detailed_outline: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=None)
 
     volume = relationship("Volume", back_populates="chapters")
     project = relationship("Project", back_populates="chapters")

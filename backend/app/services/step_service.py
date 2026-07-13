@@ -22,9 +22,11 @@ async def save_settings_data(db: AsyncSession, project_id: str, data: dict) -> N
     project = result.scalar_one_or_none()
     if not project:
         return
-    config = project.style_config or {}
+    config = dict(project.style_config or {})
     config["settings"] = data
     project.style_config = config
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(project, "style_config")
     await db.commit()
 
 
@@ -148,6 +150,7 @@ async def get_chapters(db: AsyncSession, project_id: str, volume_id: str | None 
             "word_target": c.word_target,
             "sort_order": c.sort_order,
             "status": c.status,
+            "detailed_outline": c.detailed_outline,
         }
         for c in chapters
     ]
@@ -171,6 +174,7 @@ async def save_chapter_outlines(db: AsyncSession, project_id: str, volume_id: st
             status=ch_data.get("status", "pending"),
             content=ch_data.get("content", ""),
             word_count=ch_data.get("word_count", 0),
+            detailed_outline=ch_data.get("detailed_outline"),
         )
         db.add(ch)
     await db.commit()
@@ -191,6 +195,7 @@ async def get_chapter(db: AsyncSession, chapter_id: str) -> dict | None:
         "word_target": c.word_target,
         "sort_order": c.sort_order,
         "status": c.status,
+        "detailed_outline": c.detailed_outline,
     }
 
 
@@ -223,7 +228,7 @@ async def update_chapter(db: AsyncSession, chapter_id: str, data: dict) -> dict 
             version = Version(chapter_id=chapter_id, content=old_content, operation_type="before_edit")
             db.add(version)
         ch.word_count = len(data["content"])
-    for key in ("title", "summary", "content", "status", "word_target"):
+    for key in ("title", "summary", "content", "status", "word_target", "detailed_outline"):
         if key in data:
             setattr(ch, key, data[key])
     await db.commit()

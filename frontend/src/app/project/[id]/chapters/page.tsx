@@ -200,6 +200,26 @@ export default function ChaptersPage() {
     toast.success("所有分卷章节大纲生成完成");
   };
 
+  const handleGenerateBatchOutlines = () => {
+    setStreamText("");
+    streamRef.current = "";
+    setProgress("正在为当前卷批量生成场景细纲...");
+    start(
+      api.steps.generateBatchDetailedOutlinesUrl(projectId),
+      { volume_id: selectedVolumeId, user_direction: direction },
+      {
+        onContent: (text) => { streamRef.current += text; setStreamText(streamRef.current); },
+        onProgress: (msg) => setProgress(msg),
+        onDone: () => {
+          setStreamText("");
+          setProgress("");
+          toast.success("当前卷场景细纲生成完成");
+        },
+        onError: (msg) => { toast.error("细纲生成失败", { description: msg }); setProgress(""); },
+      }
+    );
+  };
+
   const stopAll = () => {
     abortAllRef.current = true;
     stop();
@@ -261,6 +281,10 @@ export default function ChaptersPage() {
               <Button size="sm" variant="outline" onClick={handleGenerate} disabled={!selectedVolumeId}>
                 <Sparkles className="h-3.5 w-3.5 mr-1.5" />
                 生成当前卷
+              </Button>
+              <Button size="sm" variant="outline" onClick={handleGenerateBatchOutlines} disabled={!selectedVolumeId || chapters.length === 0}>
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                生成细纲
               </Button>
               <Button size="sm" onClick={handleGenerateAll}>
                 <Zap className="h-3.5 w-3.5 mr-1.5" />

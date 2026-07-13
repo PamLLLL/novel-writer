@@ -11,6 +11,8 @@ import {
   PenLine,
   ArrowRight,
   RotateCcw,
+  Wand2,
+  AlertTriangle,
 } from "lucide-react";
 import { StepNav } from "@/components/steps/step-nav";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,6 +25,10 @@ import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api-client";
 import { useSSE } from "@/hooks/use-sse";
 import { toast } from "sonner";
+import {
+  SceneOutlinePanel,
+  type DetailedOutline,
+} from "@/components/steps/scene-outline-panel";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
@@ -43,6 +49,7 @@ interface ChapterDetail {
   content: string;
   status: string;
   word_count: number;
+  detailed_outline?: DetailedOutline | null;
 }
 
 interface VersionItem {
@@ -86,6 +93,18 @@ export default function WritePage() {
   // AI continue state
   const [continueWordTarget, setContinueWordTarget] = useState(1000);
 
+  // Scene outline state
+  const [detailedOutline, setDetailedOutline] = useState<DetailedOutline | null>(null);
+  const [savingOutline, setSavingOutline] = useState(false);
+  const outlineSSE = useSSE();
+
+  // Polish state
+  const [showPolish, setShowPolish] = useState(false);
+  const [polishDirection, setPolishDirection] = useState("");
+
+  // Stale chapter tracking
+  const [staleChapterIds, setStaleChapterIds] = useState<Set<string>>(new Set());
+
   // ---- Data loading ----
 
   const loadChapters = useCallback(async () => {
@@ -109,6 +128,9 @@ export default function WritePage() {
         };
         setChapterDetail(detail);
         setContent(detail.content || "");
+        setDetailedOutline(
+          (detail.detailed_outline as DetailedOutline | null) || null
+        );
         if (detail.word_target && detail.word_target > 0) {
           setWordTarget(detail.word_target);
         }
@@ -147,7 +169,10 @@ export default function WritePage() {
 
   useEffect(() => {
     loadChapters();
-  }, [loadChapters]);
+    api.steps.getStaleness(projectId).then((data) => {
+      setStaleChapterIds(new Set(data.stale_chapters.map((c) => c.id)));
+    }).catch(() => {});
+  }, [loadChapters, projectId]);
 
   // ---- Chapter selection ----
 
@@ -160,6 +185,9 @@ export default function WritePage() {
     setVersions([]);
     setShowRewrite(false);
     setRewriteInstruction("");
+    setShowPolish(false);
+    setPolishDirection("");
+    setDetailedOutline(null);
     loadChapterDetail(chapterId);
   };
 
@@ -198,6 +226,11 @@ export default function WritePage() {
             await loadChapters();
             await loadChapterDetail(selectedChapterId);
             toast.success("生成完成并已保存");
+            fetch(api.knowledge.updateStateUrl(projectId, selectedChapterId), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            }).then(() => toast.success("叙事状态已更新")).catch(() => {});
           } catch (e) {
             toast.error("自动保存失败", { description: String(e) });
           }
@@ -381,6 +414,76 @@ export default function WritePage() {
     }
   };
 
+  // ---- Scene outline ----
+
+  const handleGenerateOutline = () => {
+    if (!selectedChapterId) return;
+    const url = api.steps.generateDetailedOutlineUrl(projectId, selectedChapterId);
+    outlineSSE.start(url, {}, {
+      onContent: () => {},
+      onProgress: (msg) => setProgress(msg),
+      onDone: (result) => {
+        setProgress("");
+        if (result && (result as Record<string, unknown>).scenes) {
+          setDetailedOutline(result as unknown as DetailedOutline);
+          toast.success("场景细纲生成完成");
+        }
+      },
+      onError: (msg) => {
+        setProgress("");
+        toast.error("细纲生成失败", { description: msg });
+      },
+    });
+  };
+
+  const handleSaveOutline = async () => {
+    if (!selectedChapterId || !detailedOutline) return;
+    setSavingOutline(true);
+    try {
+      await api.steps.saveDetailedOutline(
+        projectId,
+        selectedChapterId,
+        detailedOutline as unknown as Record<string, unknown>
+      );
+      toast.success("细纲已保存");
+    } catch (e) {
+      toast.error("保存失败", { description: String(e) });
+    } finally {
+      setSavingOutline(false);
+    }
+  };
+
+  // ---- Polish ----
+
+  const handlePolish = () => {
+    if (!selectedChapterId) return;
+    setStreamText("");
+    streamRef.current = "";
+    setProgress("");
+    const url = api.steps.polishUrl(projectId, selectedChapterId);
+    start(url, { selected_text: "", user_direction: polishDirection }, {
+      onContent: (text) => {
+        streamRef.current += text;
+        setStreamText(streamRef.current);
+        setContent(streamRef.current);
+      },
+      onProgress: (msg) => setProgress(msg),
+      onDone: async (result) => {
+        setStreamText("");
+        setProgress("");
+        const polishedContent = (result.content as string) || streamRef.current;
+        setContent(polishedContent);
+        await loadChapters();
+        await loadChapterDetail(selectedChapterId);
+        toast.success("润色完成");
+      },
+      onError: (msg) => {
+        toast.error("润色失败", { description: msg });
+        setProgress("");
+      },
+    });
+  };
+
   const formatDate = (dateStr: string) => {
     try {
       const d = new Date(dateStr);
@@ -441,7 +544,10 @@ export default function WritePage() {
                 onClick={() => selectChapter(ch.id)}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-medium truncate">
+                  <span className="text-sm font-medium truncate flex items-center gap-1">
+                    {staleChapterIds.has(ch.id) && (
+                      <AlertTriangle className="h-3 w-3 text-yellow-500 shrink-0" />
+                    )}
                     {ch.title}
                   </span>
                   <Badge
@@ -540,6 +646,16 @@ export default function WritePage() {
               </div>
             )}
 
+            {/* Scene Outline Panel */}
+            <SceneOutlinePanel
+              outline={detailedOutline}
+              onOutlineChange={setDetailedOutline}
+              onGenerate={handleGenerateOutline}
+              onSave={handleSaveOutline}
+              isStreaming={outlineSSE.isStreaming}
+              isSaving={savingOutline}
+            />
+
             {/* Editor */}
             <div className="flex-1 p-4 overflow-auto">
               <Label htmlFor="chapter-content" className="sr-only">
@@ -590,6 +706,15 @@ export default function WritePage() {
                   />
                   <span className="text-xs text-muted-foreground">字</span>
                 </div>
+                <Separator orientation="vertical" className="h-5" />
+                <Button
+                  variant={showPolish ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => setShowPolish((v) => !v)}
+                >
+                  <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+                  润色降AI味
+                </Button>
                 <div className="flex-1" />
                 <Button
                   variant={showVersions ? "secondary" : "ghost"}
@@ -636,6 +761,44 @@ export default function WritePage() {
                         <PenLine className="h-3.5 w-3.5 mr-1.5" />
                       )}
                       改写整章
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Polish panel */}
+              {showPolish && (
+                <div className="px-4 pb-3">
+                  <div className="flex gap-2 items-end">
+                    <div className="flex-1">
+                      <Label
+                        htmlFor="polish-direction"
+                        className="text-xs text-muted-foreground mb-1 block"
+                      >
+                        润色方向（可选）
+                      </Label>
+                      <Textarea
+                        id="polish-direction"
+                        value={polishDirection}
+                        onChange={(e) => setPolishDirection(e.target.value)}
+                        placeholder="留空则按默认规则润色：替换AI典型表达、增强感官细节、调整节奏..."
+                        className="text-sm resize-none"
+                        rows={2}
+                        disabled={isStreaming}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={handlePolish}
+                      disabled={isStreaming || !content}
+                      className="shrink-0"
+                    >
+                      {isStreaming ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                      ) : (
+                        <Wand2 className="h-3.5 w-3.5 mr-1.5" />
+                      )}
+                      润色整章
                     </Button>
                   </div>
                 </div>

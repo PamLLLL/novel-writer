@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
-import { Plus, Trash2, Sparkles, Loader2 } from "lucide-react";
+import { Plus, Trash2, Sparkles, Loader2, AlertTriangle } from "lucide-react";
 import { StepPage } from "@/components/steps/step-page";
 import { api } from "@/lib/api-client";
 import { useSSE } from "@/hooks/use-sse";
@@ -224,8 +224,25 @@ export default function OutlinePage() {
     });
   };
 
+  const [cascadeResult, setCascadeResult] = useState<{ affected: { chapter_title: string; impact: string; severity: string; suggestion: string }[]; summary: string } | null>(null);
+  const [showCascade, setShowCascade] = useState(false);
+  const cascadeSSE = useSSE();
+
   const saveData = async () => {
     await api.steps.saveOutline(projectId, data as unknown as Record<string, unknown>);
+  };
+
+  const handleCascadeCheck = () => {
+    setShowCascade(true);
+    setCascadeResult(null);
+    const url = api.knowledge.upstreamCascadeUrl(projectId);
+    cascadeSSE.start(url, { change_type: "大纲", change_summary: "" }, {
+      onContent: () => {},
+      onDone: (result) => {
+        setCascadeResult(result as unknown as typeof cascadeResult);
+      },
+      onError: (msg) => toast.error("分析失败", { description: msg }),
+    });
   };
 
   const hasData = !!data.act_one.title || !!data.act_one.summary || !!data.act_two.title || !!data.act_three.title;
@@ -452,6 +469,68 @@ export default function OutlinePage() {
           </div>
         </CardContent>
       </Card>
+      {/* 影响分析 */}
+      {hasData && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4" />
+              修改影响分析
+            </CardTitle>
+            <CardAction>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCascadeCheck}
+                disabled={cascadeSSE.isStreaming}
+              >
+                {cascadeSSE.isStreaming ? (
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4 mr-1" />
+                )}
+                检查影响
+              </Button>
+            </CardAction>
+          </CardHeader>
+          <CardContent>
+            {!showCascade ? (
+              <p className="text-sm text-muted-foreground">
+                修改大纲后，点击「检查影响」分析对已写章节的影响
+              </p>
+            ) : cascadeSSE.isStreaming ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                正在分析...
+              </div>
+            ) : cascadeResult ? (
+              <div className="space-y-3">
+                <p className="text-sm">{cascadeResult.summary}</p>
+                {cascadeResult.affected && cascadeResult.affected.length > 0 && (
+                  <div className="space-y-2">
+                    {cascadeResult.affected.map((item, i) => (
+                      <div key={i} className="rounded-md border border-border p-3 text-sm">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium">{item.chapter_title}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            item.severity === "high" ? "bg-red-100 text-red-700" :
+                            item.severity === "medium" ? "bg-yellow-100 text-yellow-700" :
+                            "bg-blue-100 text-blue-700"
+                          }`}>
+                            {item.severity === "high" ? "高" : item.severity === "medium" ? "中" : "低"}
+                          </span>
+                        </div>
+                        <p className="text-muted-foreground">{item.impact}</p>
+                        <p className="text-xs mt-1">{item.suggestion}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      )}
     </StepPage>
   );
 }

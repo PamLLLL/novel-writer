@@ -229,6 +229,81 @@ def prompt_chapter_outlines(
 - 章末钩子要自然，不要生硬断章"""
 
 
+def prompt_detailed_outline(
+    genre: str,
+    chapter_title: str,
+    chapter_summary: str,
+    characters_json: str,
+    worldview_json: str,
+    outline_json: str,
+    prev_chapter_outline: dict | None = None,
+    next_chapter_summary: str = "",
+    user_direction: str = "",
+) -> str:
+    prev_block = ""
+    if prev_chapter_outline:
+        last_scene = prev_chapter_outline.get("scenes", [{}])[-1] if prev_chapter_outline.get("scenes") else {}
+        prev_block = f"""
+
+## 上一章细纲（确保衔接）
+
+上一章最后一个场景：
+- 场景位置：{last_scene.get('location', '未知')}
+- 场景时间：{last_scene.get('time', '未知')}
+- POV角色：{last_scene.get('pov', '未知')}
+- 场景结尾过渡：{last_scene.get('transition_to_next', '无')}
+- 上一章章节弧线：{prev_chapter_outline.get('chapter_arc', '无')}
+"""
+
+    next_block = f"\n下一章摘要（确保本章结尾能自然引向下一章）：{next_chapter_summary}" if next_chapter_summary else ""
+
+    return f"""{_build_direction_block(user_direction)}请为以下章节生成详细的场景级细纲。
+
+小说类型：{genre}
+章节标题：{chapter_title}
+章节摘要：{chapter_summary}
+{prev_block}{next_block}
+
+故事大纲：{outline_json}
+人物设定：{characters_json}
+世界观：{worldview_json}
+
+请以JSON格式返回：
+{{
+  "scenes": [
+    {{
+      "location": "具体场景地点（如：破旧的茶楼二层、雨后的竹林小径）",
+      "time": "场景时间（如：深夜、黄昏、清晨第一缕阳光时）",
+      "pov": "本场景的视角人物",
+      "characters": ["出场人物列表"],
+      "purpose": "本场景在叙事中的作用（如：揭示秘密、制造冲突、情感转折）",
+      "conflict": "本场景的具体冲突或张力（不要写'无'，每个场景都有张力来源）",
+      "emotional_arc": "本场景的情绪变化轨迹（如：从轻松闲聊 → 暗中警觉 → 紧张对峙）",
+      "key_beats": [
+        "具体的关键节拍——是动作、对话或内心活动，不是笼统描述",
+        "例如：'林远假装不经意提到伤疤'而不是'林远试探老陈'"
+      ],
+      "sensory_anchors": "本场景的感官锚点（视觉、听觉、嗅觉、触觉中至少两种，要具体）",
+      "dialogue_notes": "本场景的对话风格指导（谁的语气怎样变化，有什么潜台词）",
+      "transition_to_next": "如何过渡到下一个场景（具体动作或事件触发转场）"
+    }}
+  ],
+  "chapter_arc": "本章的整体叙事弧线（如：从平静到暴风雨前的寂静）",
+  "key_revelations": ["本章揭示的重要信息"],
+  "foreshadowing_plants": ["本章埋下的伏笔"],
+  "foreshadowing_payoffs": ["本章回收的之前章节的伏笔"]
+}}
+
+要求：
+- 每章设计 2-4 个场景，每个场景是一个完整的叙事单元
+- key_beats 必须是具体的、可执行的动作或对话要点，不要抽象概括
+- sensory_anchors 要足够具体，让写作时有画面感（"茶楼里的檀香味"而不是"有味道"）
+- emotional_arc 必须有变化，不能全程一个情绪
+- dialogue_notes 要具体到角色和语气变化
+- transition_to_next 是具体的转场动作，不是"然后到了下一个场景"
+- foreshadowing 要与故事大纲中的伏笔规划对应"""
+
+
 def prompt_chapter_content(
     genre: str,
     chapter_title: str,
@@ -238,7 +313,11 @@ def prompt_chapter_content(
     prev_summary: str = "",
     chapter_word_target: int = 3000,
     user_direction: str = "",
+    detailed_outline: dict | None = None,
+    narrative_state: dict | None = None,
 ) -> str:
+    import json
+
     prev_block = ""
     if prev_summary:
         prev_block = f"""
@@ -249,8 +328,56 @@ def prompt_chapter_content(
 
 """
 
+    narrative_block = ""
+    if narrative_state:
+        ns = json.dumps(narrative_state, ensure_ascii=False)
+        narrative_block = f"""
+
+## 叙事状态（全局故事记忆——确保连贯性）
+
+{ns[:4000]}
+
+"""
+
+    if detailed_outline and detailed_outline.get("scenes"):
+        scenes_text = json.dumps(detailed_outline["scenes"], ensure_ascii=False, indent=2)
+        chapter_arc = detailed_outline.get("chapter_arc", "")
+        plants = detailed_outline.get("foreshadowing_plants", [])
+        payoffs = detailed_outline.get("foreshadowing_payoffs", [])
+        plant_text = "、".join(plants) if plants else "无"
+        payoff_text = "、".join(payoffs) if payoffs else "无"
+
+        return f"""{_build_direction_block(user_direction)}请撰写以下章节的完整正文。
+{prev_block}{narrative_block}
+## 场景细纲（按场景顺序写作，这是你的创作蓝图）
+
+{scenes_text}
+
+本章弧线：{chapter_arc}
+本章需埋伏笔：{plant_text}
+本章需回收伏笔：{payoff_text}
+
+小说类型：{genre}
+章节标题：{chapter_title}
+目标字数：约{chapter_word_target}字
+人物设定：{characters_json}
+世界观：{worldview_json}
+
+写作要求：
+- 【最重要】按照场景细纲中的场景顺序逐场景写作，每个场景的 key_beats 都必须体现在正文中
+- 本章开头必须自然承接上一章结尾，不能有任何断裂感
+- 每个场景的 sensory_anchors 必须融入描写中，营造沉浸感
+- 对话要遵循 dialogue_notes 中的指导，不同角色说话方式不同
+- 场景之间的过渡要使用 transition_to_next 中的指导
+- emotional_arc 要通过细节展现（表情、动作、环境变化），不要直接写"他感到紧张"
+- 开篇要抓人，不要用"阳光洒在..."之类的陈词滥调
+- 章末要有悬念或情感钩子
+- 目标字数{chapter_word_target}字左右，不要水字数
+
+直接输出小说正文，不要任何解释或标注。"""
+
     return f"""{_build_direction_block(user_direction)}请撰写以下章节的完整正文。
-{prev_block}
+{prev_block}{narrative_block}
 小说类型：{genre}
 章节标题：{chapter_title}
 章节摘要：{chapter_summary}
@@ -269,6 +396,142 @@ def prompt_chapter_content(
 - 目标字数{chapter_word_target}字左右，不要水字数
 
 直接输出小说正文，不要任何解释或标注。"""
+
+
+def prompt_extract_narrative_state(
+    chapter_title: str,
+    chapter_content: str,
+    previous_state: dict,
+    characters_json: str,
+) -> str:
+    import json
+    prev_state_text = json.dumps(previous_state, ensure_ascii=False)
+
+    return f"""请基于以下新完成的章节内容，更新叙事状态。
+
+## 当前叙事状态（上一次更新后的状态）
+{prev_state_text[:6000]}
+
+## 新完成的章节
+章节标题：{chapter_title}
+章节内容：
+{chapter_content[:8000]}
+
+## 人物设定参考
+{characters_json}
+
+请以JSON格式返回更新后的完整叙事状态：
+{{
+  "characters_state": {{
+    "角色名": {{
+      "location": "当前所在位置",
+      "emotion": "当前情绪状态",
+      "knowledge": ["该角色目前知道的重要信息"],
+      "goals": "该角色当前的目标/动机",
+      "relationships_update": "本章中关系的变化（如有）",
+      "status": "存活/受伤/失踪等状态"
+    }}
+  }},
+  "plot_hooks": [
+    {{
+      "description": "情节线索/伏笔描述",
+      "setup_chapter": "埋设章节",
+      "status": "active/resolved",
+      "resolve_chapter": "回收章节（如已回收）"
+    }}
+  ],
+  "timeline": [
+    {{
+      "chapter": "章节标题",
+      "story_time": "故事内时间",
+      "events": "关键事件摘要"
+    }}
+  ],
+  "items": [
+    {{
+      "name": "重要物品名称",
+      "current_holder": "当前持有者",
+      "location": "当前位置",
+      "status": "状态描述"
+    }}
+  ],
+  "rules": [
+    {{
+      "rule": "已确立的世界规则",
+      "source": "确立于哪一章"
+    }}
+  ]
+}}
+
+要求：
+- 在上一次状态基础上【增量更新】，不要丢弃之前的信息
+- 新章节中出现的角色状态变化要反映在 characters_state 中
+- 已解决的 plot_hooks 标记为 resolved，新出现的添加为 active
+- timeline 追加本章的关键事件
+- 物品状态如有变化要更新
+- 如果本章确立了新的世界规则，添加到 rules 中"""
+
+
+def prompt_polish(
+    chapter_content: str,
+    characters_json: str,
+    selected_text: str = "",
+    user_direction: str = "",
+) -> str:
+    if selected_text:
+        context_block = f"""
+## 完整章节（保持上下文一致性）
+{chapter_content}
+
+## 需要润色的片段
+{selected_text}
+"""
+    else:
+        context_block = f"""
+## 需要润色的章节
+{chapter_content}
+"""
+
+    output_hint = "只输出润色后的片段，不要输出整章" if selected_text else "输出润色后的完整章节"
+
+    return f"""{_build_direction_block(user_direction)}请对以下小说文本进行润色，降低AI感，提升文学质感。
+{context_block}
+人物设定：{characters_json}
+
+润色规则（严格执行）：
+
+### 1. 替换AI典型表达
+- "不禁" → 去掉或换成具体动作（"他攥紧了拳"而不是"他不禁攥紧了拳"）
+- "一丝XX" → 换成更自然的表达（"一丝笑意"→"嘴角微微翘起"）
+- "仿佛/似乎/好像" → 减少使用频率，改用直接描写
+- "缓缓" → 大部分可以删除
+- "深邃的目光" → 换成具体描写（"他盯着窗外的暮色"）
+- "心中涌起一股" → 用身体反应替代（"胃里一阵翻腾"）
+- "不由自主" → 删除，直接写动作
+- "XXX般的" → 减少比喻堆砌
+- "嘴角微微上扬" → 在同一篇中不要重复超过1次
+
+### 2. 对话去AI味
+- 确保每个角色说话方式不同（用词、句长、语气词）
+- 删除过于书面化的对话（真人说话更短、更口语）
+- 加入角色特有的口头禅或语言习惯
+- 潜台词胜过直白表达
+
+### 3. 感官细节增强
+- 用具体的、独特的感官描写替换通用描写
+- "安静的房间" → "只能听到墙上时钟的滴答声"
+- 每个场景至少有两种不同感官的描写
+
+### 4. 节奏调整
+- 删除不推进情节或情感的描写段落
+- 紧张处用短句，舒缓处可以用长句
+- 动作场景减少心理描写，用行为展示心理
+
+### 5. 过渡自然化
+- 删除"然而"、"不过"等过度使用的转折词
+- 用场景细节或动作来制造过渡
+
+{output_hint}。直接输出内容，不要任何解释或标注。"""
 
 
 def prompt_quality_check(full_text: str, characters_json: str, worldview_json: str) -> str:

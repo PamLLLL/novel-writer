@@ -32,3 +32,30 @@ async def cascade_analysis(project_id: str, req: CascadeRequest, db: AsyncSessio
         knowledge_service.cascade_analysis_stream(db, project_id, req.chapter_id),
         media_type="text/event-stream",
     )
+
+
+@router.post("/{project_id}/update-state/{chapter_id}")
+async def update_narrative_state(
+    project_id: str, chapter_id: str, db: AsyncSession = Depends(get_db)
+):
+    return StreamingResponse(
+        knowledge_service.update_narrative_state_stream(db, project_id, chapter_id),
+        media_type="text/event-stream",
+    )
+
+
+class UpstreamCascadeRequest(BaseModel):
+    change_type: str
+    change_summary: str = ""
+
+
+@router.post("/{project_id}/upstream-cascade")
+async def upstream_cascade(
+    project_id: str, req: UpstreamCascadeRequest, db: AsyncSession = Depends(get_db)
+):
+    return StreamingResponse(
+        knowledge_service.cascade_analysis_upstream_stream(
+            db, project_id, req.change_type, req.change_summary
+        ),
+        media_type="text/event-stream",
+    )

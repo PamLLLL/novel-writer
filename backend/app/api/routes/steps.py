@@ -311,3 +311,122 @@ async def apply_fix(project_id: str, req: ApplyFixRequest, db: AsyncSession = De
         ),
         media_type="text/event-stream",
     )
+
+
+# --- Detailed Outlines (Scene-Level) ---
+
+class DetailedOutlineRequest(BaseModel):
+    user_direction: str = ""
+
+
+class BatchDetailedOutlineRequest(BaseModel):
+    volume_id: str
+    user_direction: str = ""
+
+
+class SaveDetailedOutlineRequest(BaseModel):
+    detailed_outline: dict
+
+
+@router.post("/{project_id}/generate/detailed-outline/{chapter_id}")
+async def generate_detailed_outline(
+    project_id: str, chapter_id: str, req: DetailedOutlineRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    return StreamingResponse(
+        generation_service.generate_detailed_outline_stream(
+            db, project_id, chapter_id, req.user_direction
+        ),
+        media_type="text/event-stream",
+    )
+
+
+@router.post("/{project_id}/generate/batch-detailed-outlines")
+async def batch_detailed_outlines(
+    project_id: str, req: BatchDetailedOutlineRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    return StreamingResponse(
+        generation_service.generate_batch_detailed_outlines_stream(
+            db, project_id, req.volume_id, req.user_direction
+        ),
+        media_type="text/event-stream",
+    )
+
+
+@router.put("/{project_id}/chapter/{chapter_id}/detailed-outline")
+async def save_detailed_outline(
+    project_id: str, chapter_id: str, req: SaveDetailedOutlineRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    from sqlalchemy import select
+    from app.models import Chapter
+    result = await db.execute(select(Chapter).where(Chapter.id == chapter_id))
+    chapter = result.scalar_one_or_none()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="Chapter not found")
+    chapter.detailed_outline = req.detailed_outline
+    await db.commit()
+    return {"status": "ok"}
+
+
+# --- Polish ---
+
+class PolishRequest(BaseModel):
+    selected_text: str = ""
+    user_direction: str = ""
+
+
+@router.post("/{project_id}/generate/polish/{chapter_id}")
+async def polish_chapter(
+    project_id: str, chapter_id: str, req: PolishRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    return StreamingResponse(
+        generation_service.polish_chapter_stream(
+            db, project_id, chapter_id, req.selected_text, req.user_direction
+        ),
+        media_type="text/event-stream",
+    )
+
+
+# --- Staleness Check ---
+
+@router.get("/{project_id}/staleness")
+async def check_staleness(project_id: str, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
+    from app.models import Chapter, Outline, Project, Volume, Worldview
+
+    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+    outline = (await db.execute(select(Outline).where(Outline.project_id == project_id))).scalar_one_or_none()
+    worldview = (await db.execute(select(Worldview).where(Worldview.project_id == project_id))).scalar_one_or_none()
+
+    upstream_times = []
+    if project and project.updated_at:
+        upstream_times.append(project.updated_at)
+    if outline and outline.updated_at:
+        upstream_times.append(outline.updated_at)
+    if worldview and worldview.updated_at:
+        upstream_times.append(worldview.updated_at)
+
+    latest_upstream = max(upstream_times) if upstream_times else None
+
+    chapters = (await db.execute(
+        select(Chapter)
+        .join(Volume, Chapter.volume_id == Volume.id)
+        .where(Chapter.project_id == project_id)
+        .order_by(Volume.sort_order, Chapter.sort_order)
+    )).scalars().all()
+
+    stale_chapters = []
+    for ch in chapters:
+        if latest_upstream and ch.content and ch.updated_at and ch.updated_at < latest_upstream:
+            stale_chapters.append({
+                "id": ch.id,
+                "title": ch.title,
+            })
+
+    return {
+        "stale_chapters": stale_chapters,
+        "upstream_updated": latest_upstream.isoformat() if latest_upstream else None,
+    }

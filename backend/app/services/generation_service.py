@@ -12,7 +12,10 @@ from app.core.prompts.steps import (
     prompt_chapter_content,
     prompt_chapter_outlines,
     prompt_characters,
+    prompt_detailed_outline,
+    prompt_extract_narrative_state,
     prompt_outline,
+    prompt_polish,
     prompt_quality_check,
     prompt_settings,
     prompt_volumes,
@@ -524,6 +527,20 @@ async def generate_chapter_content_stream(
         word_target = ctx["project"].target_words // max(1, len(ctx["volumes"])) // 10
         word_target = max(2000, min(5000, word_target))
 
+    detailed_outline = chapter.detailed_outline
+
+    from app.services.knowledge_service import get_knowledge_graph
+    narrative_state = await get_knowledge_graph(db, project_id)
+    has_narrative = bool(narrative_state.get("characters_state") or narrative_state.get("plot_hooks"))
+
+    if current_idx > 0:
+        prev_ch = all_list[current_idx - 1]
+        if prev_ch.detailed_outline and prev_ch.detailed_outline.get("scenes"):
+            last_scene = prev_ch.detailed_outline["scenes"][-1]
+            transition = last_scene.get("transition_to_next", "")
+            if transition:
+                prev_summary += f"\n\n上一章最后场景过渡：{transition}"
+
     user_prompt = prompt_chapter_content(
         genre=ctx["project"].genre,
         chapter_title=chapter.title,
@@ -533,6 +550,8 @@ async def generate_chapter_content_stream(
         prev_summary=prev_summary,
         chapter_word_target=word_target,
         user_direction=user_direction,
+        detailed_outline=detailed_outline,
+        narrative_state=narrative_state if has_narrative else None,
     )
 
     system_prompt = ctx["system_prompt"]
@@ -757,3 +776,137 @@ async def apply_quality_fix_stream(
     await db.commit()
 
     yield _sse_event("done", {"result": {"content": full_text, "word_count": len(full_text)}})
+
+
+async def generate_detailed_outline_stream(
+    db: AsyncSession, project_id: str, chapter_id: str, user_direction: str = ""
+) -> AsyncIterator[str]:
+    yield _sse_event("progress", {"message": "正在生成场景细纲..."})
+
+    ctx = await _get_project_context(db, project_id)
+    provider = await _get_provider_from_settings(db)
+
+    result = await db.execute(select(Chapter).where(Chapter.id == chapter_id))
+    chapter = result.scalar_one_or_none()
+    if not chapter:
+        yield _sse_event("error", {"message": "章节不存在"})
+        return
+
+    all_chapters = await db.execute(
+        select(Chapter)
+        .join(Volume, Chapter.volume_id == Volume.id)
+        .where(Chapter.project_id == project_id)
+        .order_by(Volume.sort_order, Chapter.sort_order)
+    )
+    all_list = all_chapters.scalars().all()
+    current_idx = next((i for i, c in enumerate(all_list) if c.id == chapter.id), -1)
+
+    prev_outline = None
+    next_summary = ""
+    if current_idx > 0:
+        prev_outline = all_list[current_idx - 1].detailed_outline
+    if current_idx < len(all_list) - 1:
+        next_summary = all_list[current_idx + 1].summary or ""
+
+    user_prompt = prompt_detailed_outline(
+        genre=ctx["project"].genre,
+        chapter_title=chapter.title,
+        chapter_summary=chapter.summary,
+        characters_json=ctx["characters_json"],
+        worldview_json=ctx["worldview_json"],
+        outline_json=ctx["outline_json"],
+        prev_chapter_outline=prev_outline,
+        next_chapter_summary=next_summary,
+        user_direction=user_direction,
+    )
+
+    system_prompt = ctx["system_prompt"]
+    full_text = ""
+    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=8192):
+        full_text += chunk
+        yield _sse_event("content", {"text": chunk})
+
+    parsed = extract_json(full_text)
+    if parsed:
+        chapter.detailed_outline = parsed
+        await db.commit()
+        yield _sse_event("done", {"result": parsed})
+    else:
+        yield _sse_event("done", {"result": {"raw_text": full_text}})
+
+
+async def generate_batch_detailed_outlines_stream(
+    db: AsyncSession, project_id: str, volume_id: str, user_direction: str = ""
+) -> AsyncIterator[str]:
+    result = await db.execute(
+        select(Chapter)
+        .where(Chapter.volume_id == volume_id, Chapter.project_id == project_id)
+        .order_by(Chapter.sort_order)
+    )
+    chapters = result.scalars().all()
+
+    if not chapters:
+        yield _sse_event("error", {"message": "该卷暂无章节"})
+        return
+
+    yield _sse_event("progress", {"message": f"开始为 {len(chapters)} 个章节生成场景细纲..."})
+
+    for i, chapter in enumerate(chapters):
+        yield _sse_event("progress", {"message": f"正在生成第 {i + 1}/{len(chapters)} 章「{chapter.title}」的场景细纲..."})
+        async for event in generate_detailed_outline_stream(db, project_id, chapter.id, user_direction):
+            if '"done"' not in event and '"error"' not in event:
+                yield event
+
+        await db.refresh(chapter)
+        if chapter.detailed_outline:
+            yield _sse_event("chapter_done", {
+                "chapter_id": chapter.id,
+                "chapter_title": chapter.title,
+                "index": i,
+                "total": len(chapters),
+                "detailed_outline": chapter.detailed_outline,
+            })
+
+    yield _sse_event("done", {"result": {"total": len(chapters), "message": "所有章节细纲生成完成"}})
+
+
+async def polish_chapter_stream(
+    db: AsyncSession, project_id: str, chapter_id: str,
+    selected_text: str = "", user_direction: str = ""
+) -> AsyncIterator[str]:
+    yield _sse_event("progress", {"message": "正在润色..."})
+    ctx = await _get_project_context(db, project_id)
+    provider = await _get_provider_from_settings(db)
+
+    result = await db.execute(select(Chapter).where(Chapter.id == chapter_id))
+    chapter = result.scalar_one_or_none()
+    if not chapter or not chapter.content:
+        yield _sse_event("error", {"message": "章节不存在或无内容"})
+        return
+
+    from app.models.version import Version
+    version = Version(chapter_id=chapter_id, content=chapter.content, operation_type="before_polish")
+    db.add(version)
+    await db.commit()
+
+    user_prompt = prompt_polish(
+        chapter_content=chapter.content,
+        characters_json=ctx["characters_json"],
+        selected_text=selected_text,
+        user_direction=user_direction,
+    )
+
+    full_text = ""
+    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=16384):
+        full_text += chunk
+        yield _sse_event("content", {"text": chunk})
+
+    if selected_text and full_text:
+        new_content = chapter.content.replace(selected_text, full_text, 1)
+        chapter.content = new_content
+    elif full_text:
+        chapter.content = full_text
+    chapter.word_count = len(chapter.content)
+    await db.commit()
+
+    yield _sse_event("done", {"result": {"content": chapter.content, "word_count": chapter.word_count}})

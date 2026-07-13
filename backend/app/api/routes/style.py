@@ -41,7 +41,11 @@ async def save_project_style(project_id: str, req: SaveStyleRequest, db: AsyncSe
     project = result.scalar_one_or_none()
     if not project:
         return {"status": "error", "message": "Project not found"}
-    project.style_config = req.style_config
+    from sqlalchemy.orm.attributes import flag_modified
+    config = dict(project.style_config or {})
+    config.update(req.style_config)
+    project.style_config = config
+    flag_modified(project, "style_config")
     await db.commit()
     return {"status": "ok"}
 

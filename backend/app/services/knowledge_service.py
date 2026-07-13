@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai.json_parser import extract_json
 from app.core.prompts.base import build_system_prompt
+from app.core.prompts.steps import prompt_extract_narrative_state
 from app.models import Chapter, KnowledgeGraph, Project, Volume
 from app.services.generation_service import _get_provider_from_settings, _get_project_context, _sse_event
 
@@ -151,6 +152,123 @@ async def cascade_analysis_stream(db: AsyncSession, project_id: str, chapter_id:
       "impact": "影响描述",
       "severity": "high/medium/low",
       "suggestion": "建议修改方式"
+    }}
+  ],
+  "summary": "整体影响评估"
+}}"""
+
+    full_text = ""
+    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=4096):
+        full_text += chunk
+        yield _sse_event("content", {"text": chunk})
+
+    parsed = extract_json(full_text)
+    if parsed:
+        yield _sse_event("done", {"result": parsed})
+    else:
+        yield _sse_event("done", {"result": {"raw_text": full_text}})
+
+
+async def update_narrative_state_stream(
+    db: AsyncSession, project_id: str, chapter_id: str
+) -> AsyncIterator[str]:
+    yield _sse_event("progress", {"message": "正在更新叙事状态..."})
+
+    ctx = await _get_project_context(db, project_id)
+    provider = await _get_provider_from_settings(db)
+
+    chapter = (await db.execute(select(Chapter).where(Chapter.id == chapter_id))).scalar_one_or_none()
+    if not chapter or not chapter.content:
+        yield _sse_event("error", {"message": "章节不存在或无内容"})
+        return
+
+    current_state = await get_knowledge_graph(db, project_id)
+
+    user_prompt = prompt_extract_narrative_state(
+        chapter_title=chapter.title,
+        chapter_content=chapter.content,
+        previous_state=current_state,
+        characters_json=ctx["characters_json"],
+    )
+
+    system_prompt = ctx["system_prompt"]
+    full_text = ""
+    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=8192):
+        full_text += chunk
+        yield _sse_event("content", {"text": chunk})
+
+    parsed = extract_json(full_text)
+    if parsed:
+        result = await db.execute(
+            select(KnowledgeGraph).where(KnowledgeGraph.project_id == project_id)
+        )
+        kg = result.scalar_one_or_none()
+        if kg:
+            kg.characters_state = parsed.get("characters_state", kg.characters_state)
+            kg.plot_hooks = parsed.get("plot_hooks", kg.plot_hooks)
+            kg.timeline = parsed.get("timeline", kg.timeline)
+            kg.items = parsed.get("items", kg.items)
+            kg.rules = parsed.get("rules", kg.rules)
+            kg.last_updated_chapter_id = chapter_id
+        else:
+            kg = KnowledgeGraph(
+                project_id=project_id,
+                characters_state=parsed.get("characters_state", {}),
+                plot_hooks=parsed.get("plot_hooks", []),
+                timeline=parsed.get("timeline", []),
+                items=parsed.get("items", []),
+                rules=parsed.get("rules", []),
+                last_updated_chapter_id=chapter_id,
+            )
+            db.add(kg)
+        await db.commit()
+        yield _sse_event("done", {"result": parsed})
+    else:
+        yield _sse_event("done", {"result": {"raw_text": full_text}})
+
+
+async def cascade_analysis_upstream_stream(
+    db: AsyncSession, project_id: str, change_type: str, change_summary: str = ""
+) -> AsyncIterator[str]:
+    yield _sse_event("progress", {"message": f"正在分析{change_type}修改对已写章节的影响..."})
+
+    ctx = await _get_project_context(db, project_id)
+    provider = await _get_provider_from_settings(db)
+
+    chapters = (await db.execute(
+        select(Chapter)
+        .join(Volume, Chapter.volume_id == Volume.id)
+        .where(Chapter.project_id == project_id, Chapter.content != "")
+        .order_by(Volume.sort_order, Chapter.sort_order)
+    )).scalars().all()
+
+    if not chapters:
+        yield _sse_event("done", {"result": {"affected": [], "summary": "暂无已写章节"}})
+        return
+
+    chapters_info = "\n".join([f"- {c.title}: {c.summary}" for c in chapters[:20]])
+
+    user_prompt = f"""以下小说的{change_type}发生了修改。请分析这些修改对已写章节可能产生的影响。
+
+修改类型：{change_type}
+修改内容概要：{change_summary or '用户手动编辑了' + change_type}
+
+当前设定：
+- 人物：{ctx["characters_json"][:2000]}
+- 世界观：{ctx["worldview_json"][:2000]}
+- 大纲：{ctx["outline_json"][:2000]}
+
+已写章节：
+{chapters_info}
+
+请以JSON格式返回：
+{{
+  "affected": [
+    {{
+      "chapter_title": "受影响章节",
+      "impact": "影响描述",
+      "severity": "high/medium/low",
+      "suggestion": "建议如何修改"
     }}
   ],
   "summary": "整体影响评估"

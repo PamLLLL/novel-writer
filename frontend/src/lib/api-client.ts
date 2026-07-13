@@ -88,5 +88,25 @@ export const api = {
     updateChapter: (id: string, chapterId: string, data: Record<string, unknown>) =>
       request(`/steps/${id}/chapter/${chapterId}`, { method: "PUT", body: JSON.stringify(data) }),
     generateUrl: (id: string, step: string) => streamUrl(`/steps/${id}/generate/${step}`),
+    generateDetailedOutlineUrl: (id: string, chapterId: string) =>
+      streamUrl(`/steps/${id}/generate/detailed-outline/${chapterId}`),
+    generateBatchDetailedOutlinesUrl: (id: string) =>
+      streamUrl(`/steps/${id}/generate/batch-detailed-outlines`),
+    saveDetailedOutline: (id: string, chapterId: string, outline: Record<string, unknown>) =>
+      request(`/steps/${id}/chapter/${chapterId}/detailed-outline`, {
+        method: "PUT",
+        body: JSON.stringify({ detailed_outline: outline }),
+      }),
+    polishUrl: (id: string, chapterId: string) =>
+      streamUrl(`/steps/${id}/generate/polish/${chapterId}`),
+    getStaleness: (id: string) =>
+      request<{ stale_chapters: { id: string; title: string }[]; upstream_updated: string | null }>(`/steps/${id}/staleness`),
+  },
+  knowledge: {
+    get: (id: string) => request<Record<string, unknown>>(`/knowledge/${id}`),
+    buildUrl: (id: string) => streamUrl(`/knowledge/${id}/build`),
+    updateStateUrl: (id: string, chapterId: string) =>
+      streamUrl(`/knowledge/${id}/update-state/${chapterId}`),
+    upstreamCascadeUrl: (id: string) => streamUrl(`/knowledge/${id}/upstream-cascade`),
   },
 };

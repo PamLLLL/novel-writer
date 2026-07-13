@@ -2,12 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { Check } from "lucide-react";
 import { StepPage } from "@/components/steps/step-page";
 import { api } from "@/lib/api-client";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api";
 
 interface SettingsData {
   background: string;
@@ -16,6 +28,18 @@ interface SettingsData {
   themes: string;
   target_audience: string;
   unique_selling_point: string;
+}
+
+interface StylePreset {
+  id: string;
+  name: string;
+  description: string;
+}
+
+interface PlatformInfo {
+  name: string;
+  chapter_length: string;
+  style: string;
 }
 
 const emptySettings: SettingsData = {
@@ -30,6 +54,11 @@ const emptySettings: SettingsData = {
 export default function SettingsPage() {
   const { id: projectId } = useParams<{ id: string }>();
   const [data, setData] = useState<SettingsData>(emptySettings);
+  const [presets, setPresets] = useState<StylePreset[]>([]);
+  const [platforms, setPlatforms] = useState<PlatformInfo[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState("");
+  const [customStyle, setCustomStyle] = useState("");
+  const [selectedPlatform, setSelectedPlatform] = useState("");
 
   useEffect(() => {
     api.steps.getSettings(projectId).then((res) => {
@@ -44,23 +73,52 @@ export default function SettingsPage() {
         unique_selling_point: (res.unique_selling_point as string) || "",
       });
     }).catch(() => {});
+
+    // Load style config
+    fetch(`${API_BASE}/style/${projectId}`).then(r => r.json()).then((cfg) => {
+      setSelectedPreset((cfg.preset as string) || "");
+      setCustomStyle((cfg.custom_description as string) || "");
+    }).catch(() => {});
+
+    // Load project for platform
+    api.projects.get(projectId).then((p) => {
+      setSelectedPlatform(p.target_platform || "");
+    }).catch(() => {});
+
+    // Load presets + platforms
+    fetch(`${API_BASE}/style/presets`).then(r => r.json()).then(setPresets).catch(() => {});
+    fetch(`${API_BASE}/style/platforms`).then(r => r.json()).then(setPlatforms).catch(() => {});
   }, [projectId]);
 
   const update = (field: keyof SettingsData, value: string) => {
     setData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const selectedPlatformInfo = platforms.find(p => p.name === selectedPlatform);
+
   return (
     <StepPage
       stepKey="settings"
       title="基础设定"
-      description="定义故事的基本背景、基调和核心冲突，为后续创作奠定基础"
+      description="定义故事的基本背景、基调、写作风格和目标平台"
       generateUrl={api.steps.generateUrl(projectId, "settings")}
       onSave={async () => {
+        // Save step settings
         await api.steps.saveSettings(projectId, {
           ...data,
           themes: data.themes.split(/[,，]/).map((t) => t.trim()).filter(Boolean),
         });
+        // Save style config
+        const styleRes = await fetch(`${API_BASE}/style/${projectId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            style_config: { preset: selectedPreset, custom_description: customStyle },
+          }),
+        });
+        if (!styleRes.ok) throw new Error("风格保存失败");
+        // Save platform
+        await api.projects.update(projectId, { target_platform: selectedPlatform });
       }}
       onGenerated={(result) => {
         setData({
@@ -76,6 +134,74 @@ export default function SettingsPage() {
       }}
       hasData={!!data.background || !!data.core_conflict}
     >
+      {/* Style + Platform */}
+      <Card>
+        <CardHeader>
+          <CardTitle>写作风格与平台</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>预设风格</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedPreset(selectedPreset === p.id ? "" : p.id)}
+                  className={cn(
+                    "relative rounded-lg border px-3 py-2 text-left text-sm transition-all hover:shadow-sm",
+                    selectedPreset === p.id
+                      ? "border-primary bg-primary/5 ring-1 ring-primary"
+                      : "border-border hover:border-primary/50"
+                  )}
+                >
+                  {selectedPreset === p.id && (
+                    <div className="absolute top-1 right-1">
+                      <Check className="h-3.5 w-3.5 text-primary" />
+                    </div>
+                  )}
+                  <div className="font-medium text-xs">{p.name}</div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5 line-clamp-2">{p.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>自定义风格补充</Label>
+            <Textarea
+              placeholder="用你自己的话描述想要的写作风格（可选，会与预设风格叠加）"
+              value={customStyle}
+              onChange={(e) => setCustomStyle(e.target.value)}
+              rows={2}
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>目标平台</Label>
+              <Select value={selectedPlatform} onValueChange={(v) => v && setSelectedPlatform(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="选择平台" />
+                </SelectTrigger>
+                <SelectContent>
+                  {platforms.map((p) => (
+                    <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedPlatformInfo && (
+              <div className="space-y-1 text-xs text-muted-foreground pt-6">
+                <div>章节长度：<Badge variant="secondary" className="text-[10px]">{selectedPlatformInfo.chapter_length}</Badge></div>
+                <div className="line-clamp-2">{selectedPlatformInfo.style}</div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Story Settings */}
       <Card>
         <CardHeader>
           <CardTitle>故事基础设定</CardTitle>
@@ -93,7 +219,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tone">基调与风格</Label>
+            <Label htmlFor="tone">基调</Label>
             <Input
               id="tone"
               placeholder="如：轻松幽默、悬疑紧张、史诗恢弘..."
