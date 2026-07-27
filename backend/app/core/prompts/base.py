@@ -21,7 +21,22 @@ ANTI_CLICHE_RULES = """
 - 避免"突然闭关三年出关无敌"这类跳跃式成长
 - 伏笔要自然埋设和回收，不要生硬
 - 冲突不要总是靠误会推动
-- 配角要有自己的立场和动机，不是纯粹的背景板"""
+- 配角要有自己的立场和动机，不是纯粹的背景板
+
+## 避免重复
+
+### 人名使用规则
+- 同一段落中同一角色名字最多出现2次，之后必须用代词（他/她）、称谓（老师/大哥）或描述（那个男人/对面的少女）替代
+- 连续两句话不能以同一个人名开头
+- 善用"对方"、"来人"、"身旁之人"等替代表达，避免人名刷屏
+- 对话中减少称呼对方名字，现实中人们聊天很少反复叫名字
+
+### 情节反重复规则
+- 每章的核心冲突/事件必须与前面章节不同，不能换个场景重演同一类冲突
+- 不要反复使用相同的情节模式（如：每章都是主角遇到危险→被救→感动→变强）
+- 角色的情感反应不能每次都一样：不能每次遇事都"攥紧拳头"、每次感动都"眼眶泛红"
+- 场景描写不要在不同章节中重复相似的意象和比喻
+- 对话模式要有变化，不能每次吵架/表白/说教都是相同句式"""
 
 QUALITY_DIRECTIVES = """
 ## 质量标准
@@ -34,12 +49,21 @@ QUALITY_DIRECTIVES = """
 6. **叙事连贯**：前后文衔接自然，不出现信息断层"""
 
 
-def build_system_prompt(style_instruction: str = "", platform_rules: str = "") -> str:
+def build_system_prompt(style_instruction: str = "", platform_rules: str = "", reference_texts: list[str] | None = None) -> str:
     parts = [SYSTEM_ROLE]
     if style_instruction:
         parts.append(f"\n## 写作风格要求\n\n{style_instruction}")
     if platform_rules:
         parts.append(f"\n## 平台适配规则\n\n{platform_rules}")
+    if reference_texts:
+        ref_parts = []
+        for i, text in enumerate(reference_texts[:3], 1):
+            trimmed = text.strip()[:2000]
+            if trimmed:
+                ref_parts.append(f"### 范文{i}\n\n{trimmed}")
+        if ref_parts:
+            refs = "\n\n".join(ref_parts)
+            parts.append(f"\n## 风格参考范文\n\n仔细研读以下目标平台的优秀作品片段，学习并模仿它们的语言风格、句式节奏、叙事手法和用词习惯：\n\n{refs}\n\n你的写作必须在语感和调性上向这些范文靠拢，而非用你默认的AI写作风格。")
     parts.append(ANTI_CLICHE_RULES)
     parts.append(QUALITY_DIRECTIVES)
     return "\n".join(parts)

@@ -77,6 +77,7 @@ async def _get_project_context(db: AsyncSession, project_id: str) -> dict:
         "system_prompt": build_system_prompt(
             style_instruction=compile_style(project.style_config or {}),
             platform_rules=get_platform_rules(project.target_platform or ""),
+            reference_texts=(project.style_config or {}).get("reference_texts"),
         ),
     }
 
@@ -561,6 +562,14 @@ async def generate_chapter_content_stream(
         yield _sse_event("content", {"text": chunk})
 
     word_count = len(full_text)
+
+    if word_target > 0:
+        ratio = word_count / word_target
+        if ratio < 0.7:
+            yield _sse_event("warning", {"message": f"字数偏少（{word_count}/{word_target}字，仅达目标的{int(ratio*100)}%），建议使用「AI续写」补充内容"})
+        elif ratio > 1.3:
+            yield _sse_event("warning", {"message": f"字数偏多（{word_count}/{word_target}字，超出目标{int((ratio-1)*100)}%），建议精简冗余段落"})
+
     yield _sse_event("done", {"result": {"content": full_text, "word_count": word_count}})
 
 
@@ -868,6 +877,55 @@ async def generate_batch_detailed_outlines_stream(
             })
 
     yield _sse_event("done", {"result": {"total": len(chapters), "message": "所有章节细纲生成完成"}})
+
+
+async def generate_publish_materials_stream(
+    db: AsyncSession, project_id: str, user_direction: str = ""
+) -> AsyncIterator[str]:
+    yield _sse_event("progress", {"message": "正在分析小说全文，生成发布素材..."})
+    ctx = await _get_project_context(db, project_id)
+    provider = await _get_provider_from_settings(db)
+
+    result = await db.execute(
+        select(Chapter).where(Chapter.volume_id.in_(
+            select(Volume.id).where(Volume.project_id == project_id)
+        )).order_by(Chapter.sort_order)
+    )
+    chapters = result.scalars().all()
+    summaries = []
+    for ch in chapters:
+        if ch.summary:
+            summaries.append(f"- {ch.title}: {ch.summary}")
+    chapter_summaries = "\n".join(summaries[:60])
+
+    from app.core.prompts.steps import prompt_publish_materials
+    user_prompt = prompt_publish_materials(
+        genre=ctx["project"].genre or "",
+        concept=ctx["project"].concept or "",
+        settings_json=json.dumps((ctx["project"].style_config or {}).get("settings", {}), ensure_ascii=False),
+        outline_json=ctx["outline_json"],
+        characters_json=ctx["characters_json"],
+        chapter_summaries=chapter_summaries,
+        platform=ctx["project"].target_platform or "",
+        user_direction=user_direction,
+    )
+
+    full_text = ""
+    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=4096):
+        full_text += chunk
+        yield _sse_event("content", {"text": chunk})
+
+    from app.core.ai.json_parser import extract_json
+    parsed = extract_json(full_text)
+    if parsed:
+        style_config = ctx["project"].style_config or {}
+        style_config["publish_materials"] = parsed
+        ctx["project"].style_config = style_config
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(ctx["project"], "style_config")
+        await db.commit()
+
+    yield _sse_event("done", {"result": parsed or {}})
 
 
 async def polish_chapter_stream(

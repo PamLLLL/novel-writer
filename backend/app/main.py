@@ -29,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.api.routes import health, projects, settings as settings_router, steps, style, export, knowledge
+from app.api.routes import health, projects, settings as settings_router, steps, style, export, knowledge, publish
 
 app.include_router(health.router, prefix="/api")
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
@@ -38,3 +38,4 @@ app.include_router(steps.router, prefix="/api/steps", tags=["steps"])
 app.include_router(style.router, prefix="/api/style", tags=["style"])
 app.include_router(export.router, prefix="/api/export", tags=["export"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"])
+app.include_router(publish.router, prefix="/api/publish", tags=["publish"])

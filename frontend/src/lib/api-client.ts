@@ -109,4 +109,10 @@ export const api = {
       streamUrl(`/knowledge/${id}/update-state/${chapterId}`),
     upstreamCascadeUrl: (id: string) => streamUrl(`/knowledge/${id}/upstream-cascade`),
   },
+  publish: {
+    getMaterials: (id: string) => request<Record<string, unknown>>(`/publish/${id}/materials`),
+    saveMaterials: (id: string, data: Record<string, unknown>) =>
+      request(`/publish/${id}/materials`, { method: "PUT", body: JSON.stringify({ data }) }),
+    generateUrl: (id: string) => streamUrl(`/publish/${id}/generate-materials`),
+  },
 };

@@ -59,6 +59,7 @@ export default function SettingsPage() {
   const [selectedPreset, setSelectedPreset] = useState("");
   const [customStyle, setCustomStyle] = useState("");
   const [selectedPlatform, setSelectedPlatform] = useState("");
+  const [referenceTexts, setReferenceTexts] = useState<string[]>(["", "", ""]);
 
   useEffect(() => {
     api.steps.getSettings(projectId).then((res) => {
@@ -78,6 +79,10 @@ export default function SettingsPage() {
     fetch(`${API_BASE}/style/${projectId}`).then(r => r.json()).then((cfg) => {
       setSelectedPreset((cfg.preset as string) || "");
       setCustomStyle((cfg.custom_description as string) || "");
+      const refs = cfg.reference_texts;
+      if (Array.isArray(refs)) {
+        setReferenceTexts([refs[0] || "", refs[1] || "", refs[2] || ""]);
+      }
     }).catch(() => {});
 
     // Load project for platform
@@ -113,7 +118,7 @@ export default function SettingsPage() {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            style_config: { preset: selectedPreset, custom_description: customStyle },
+            style_config: { preset: selectedPreset, custom_description: customStyle, reference_texts: referenceTexts.filter(t => t.trim()) },
           }),
         });
         if (!styleRes.ok) throw new Error("风格保存失败");
@@ -197,6 +202,22 @@ export default function SettingsPage() {
                 <div className="line-clamp-2">{selectedPlatformInfo.style}</div>
               </div>
             )}
+          </div>
+          <div className="space-y-2">
+            <Label>参考范文（可选，粘贴目标平台的优秀作品片段，AI 会模仿其风格）</Label>
+            {referenceTexts.map((text, idx) => (
+              <Textarea
+                key={idx}
+                placeholder={`范文${idx + 1}：粘贴一段你喜欢的、符合目标平台风格的文字...`}
+                value={text}
+                onChange={(e) => {
+                  const updated = [...referenceTexts];
+                  updated[idx] = e.target.value;
+                  setReferenceTexts(updated);
+                }}
+                rows={3}
+              />
+            ))}
           </div>
         </CardContent>
       </Card>

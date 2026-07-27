@@ -69,7 +69,14 @@ def prompt_characters(genre: str, concept: str, settings_json: str, target_words
 - 反派/对手至少1个，要有合理的动机（不是纯粹的恶）
 - 重要配角2-4个，各有特色和作用
 - 人物之间要有关系网络和潜在的冲突点
-- 根据篇幅调整人物数量：短篇3-5人，中篇5-8人，长篇8-15人"""
+- 根据篇幅调整人物数量：短篇3-5人，中篇5-8人，长篇8-15人
+
+命名规则（严格执行）：
+- 所有角色的姓氏必须互不相同，禁止出现两个角色同姓
+- 名字的首字必须互不相同，避免读者混淆（不能同时出现"陈远"和"陈瑶"、"苏晴"和"苏瑾"）
+- 名字要有辨识度和记忆点，避免过于大众化的名字（如张伟、李明、王芳）
+- 双字名和单字名混搭使用，增加区分度
+- 名字风格要符合故事背景（古风用古风名，都市用现代名）"""
 
 
 def prompt_worldview(genre: str, concept: str, settings_json: str, characters_json: str, user_direction: str = "") -> str:
@@ -226,7 +233,8 @@ def prompt_chapter_outlines(
 - 每章有明确的叙事目标
 - 章节之间衔接自然
 - 节奏张弛有度：不要连续多章都是高潮或都是铺垫
-- 章末钩子要自然，不要生硬断章"""
+- 章末钩子要自然，不要生硬断章
+- 【重要·避免情节重复】每章的核心冲突/事件类型必须不同，不能换个场景重演同一种冲突模式。例如不能连续3章都是"主角遇到敌人→战斗→获胜"或连续3章都是"误会→争吵→和好"。每章应有独特的叙事功能（推进主线/揭示秘密/深化人物/制造反转等）"""
 
 
 def prompt_detailed_outline(
@@ -339,27 +347,72 @@ def prompt_chapter_content(
 
 """
 
+    word_min = int(chapter_word_target * 0.85)
+    word_max = int(chapter_word_target * 1.15)
+    word_control_block = f"""
+## 字数控制（严格执行）
+
+目标字数：{chapter_word_target}字
+允许范围：{word_min} ~ {word_max}字
+如果写到中段已接近目标字数，立即开始收束本章。
+如果最后一个场景还剩大量字数空间，适当展开细节。
+绝对不要为凑字数添加无意义的描写或重复内容。
+"""
+
     if detailed_outline and detailed_outline.get("scenes"):
-        scenes_text = json.dumps(detailed_outline["scenes"], ensure_ascii=False, indent=2)
+        scenes = detailed_outline["scenes"]
+        scenes_text = json.dumps(scenes, ensure_ascii=False, indent=2)
         chapter_arc = detailed_outline.get("chapter_arc", "")
         plants = detailed_outline.get("foreshadowing_plants", [])
         payoffs = detailed_outline.get("foreshadowing_payoffs", [])
         plant_text = "、".join(plants) if plants else "无"
         payoff_text = "、".join(payoffs) if payoffs else "无"
 
+        scene_count = len(scenes)
+        per_scene = chapter_word_target // max(1, scene_count)
+        budget_lines = []
+        for i, s in enumerate(scenes):
+            purpose = s.get("purpose", f"场景{i+1}")
+            budget_lines.append(f"- 场景{i+1}（{purpose}）: 约{per_scene}字")
+        budget_text = "\n".join(budget_lines)
+        word_control_block += f"""
+字数规划（本章共{scene_count}个场景）：
+{budget_text}
+"""
+
+        key_points = []
+        for i, s in enumerate(scenes):
+            for beat in s.get("key_beats", []):
+                key_points.append(f"场景{i+1}: {beat}")
+            if s.get("characters"):
+                chars = "、".join(s["characters"][:3])
+                key_points.append(f"场景{i+1}: {chars}出场")
+
+        checklist_block = ""
+        if key_points:
+            items = "\n".join(f"  [ ] {p}" for p in key_points[:15])
+            checklist_block = f"""
+## 本章必须包含的情节要点
+
+{items}
+
+以上要点全部来自场景细纲，写完后务必逐条自查，不得遗漏。
+"""
+
         return f"""{_build_direction_block(user_direction)}请撰写以下章节的完整正文。
 {prev_block}{narrative_block}
-## 场景细纲（按场景顺序写作，这是你的创作蓝图）
+## 场景细纲（这是你的创作合同，必须严格遵守）
+
+以下场景细纲是你的创作蓝图。你必须按此蓝图写作，不得自行增减场景、替换角色或改变事件走向。
 
 {scenes_text}
 
 本章弧线：{chapter_arc}
 本章需埋伏笔：{plant_text}
 本章需回收伏笔：{payoff_text}
-
+{checklist_block}{word_control_block}
 小说类型：{genre}
 章节标题：{chapter_title}
-目标字数：约{chapter_word_target}字
 人物设定：{characters_json}
 世界观：{worldview_json}
 
@@ -372,7 +425,12 @@ def prompt_chapter_content(
 - emotional_arc 要通过细节展现（表情、动作、环境变化），不要直接写"他感到紧张"
 - 开篇要抓人，不要用"阳光洒在..."之类的陈词滥调
 - 章末要有悬念或情感钩子
-- 目标字数{chapter_word_target}字左右，不要水字数
+
+避免重复（严格执行）：
+- 人名控制：同一段落中角色名字最多出现2次，之后必须用代词（他/她）、称谓或描述替代。连续两句不能以同一个名字开头
+- 情节不重复：本章的核心事件和冲突模式不能与前面章节雷同。如果前情提要中出现过某类冲突（如争吵、追杀、误会），本章必须用不同的方式推进故事
+- 反应不重复：角色面对不同事件的情绪反应要有变化，不能每次都"攥紧拳头"或"眼眶泛红"
+- 描写不重复：不同场景的描写要用不同的意象和比喻，避免全文都是"月光如水"、"心如刀割"
 
 直接输出小说正文，不要任何解释或标注。"""
 
@@ -381,19 +439,29 @@ def prompt_chapter_content(
 小说类型：{genre}
 章节标题：{chapter_title}
 章节摘要：{chapter_summary}
-目标字数：约{chapter_word_target}字
 人物设定：{characters_json}
 世界观：{worldview_json}
 
+## 本章必须包含的情节要点
+
+严格按照以下章节摘要的内容来写，所有提到的事件、人物、转折都必须在正文中体现：
+「{chapter_summary}」
+
+不得自行替换角色、改变事件走向或省略摘要中的关键情节。
+{word_control_block}
 写作要求：
 - 【最重要】本章开头必须自然承接上一章结尾，不能有任何断裂感。如果上一章提供了结尾原文，本章的第一段要在场景、情绪、人物状态上与之无缝衔接
-- 严格按照章节摘要的内容来写，但要丰富细节
 - 开篇要抓人，不要用"阳光洒在..."之类的陈词滥调
 - 对话要生动，符合角色性格
 - 场景描写要有五感体验
 - 保持与前文中人物名称、关系、状态的一致性
 - 章末要有悬念或情感钩子
-- 目标字数{chapter_word_target}字左右，不要水字数
+
+避免重复（严格执行）：
+- 人名控制：同一段落中角色名字最多出现2次，之后必须用代词（他/她）、称谓或描述替代。连续两句不能以同一个名字开头
+- 情节不重复：本章的核心事件和冲突模式不能与前面章节雷同。如果前情提要中出现过某类冲突，本章必须用不同的方式推进故事
+- 反应不重复：角色面对不同事件的情绪反应要有变化，不能每次都用相同的身体语言
+- 描写不重复：不同场景的描写要用不同的意象和比喻
 
 直接输出小说正文，不要任何解释或标注。"""
 
@@ -569,3 +637,67 @@ def prompt_quality_check(full_text: str, characters_json: str, worldview_json: s
 5. 设定一致：世界观规则是否被违反
 6. 物品连续性：重要物品状态是否连贯
 7. 称谓一致：人物称呼是否一致"""
+
+
+def prompt_publish_materials(
+    genre: str,
+    concept: str,
+    settings_json: str,
+    outline_json: str,
+    characters_json: str,
+    chapter_summaries: str,
+    platform: str = "",
+    user_direction: str = "",
+) -> str:
+    platform_hint = f"\n目标平台：{platform}，生成的素材要适配该平台的风格和审核标准。" if platform else ""
+
+    return f"""{_build_direction_block(user_direction)}请基于以下完整的小说信息，生成发布所需的全套素材。
+
+小说类型：{genre}
+核心创意：{concept}{platform_hint}
+基础设定：{settings_json}
+故事大纲：{outline_json}
+人物体系：{characters_json}
+各章摘要：
+{chapter_summaries}
+
+请以JSON格式返回：
+{{
+  "title_suggestions": [
+    {{
+      "title": "建议书名",
+      "rationale": "为什么这个名字好（吸引力、记忆点、平台适配度）"
+    }}
+  ],
+  "protagonists": {{
+    "male_lead": {{
+      "name": "男主角名字",
+      "persona_tag": "人设标签（如：冷面战神、腹黑总裁、温润学长）"
+    }},
+    "female_lead": {{
+      "name": "女主角名字",
+      "persona_tag": "人设标签（如：清冷小白花、元气少女、毒舌学霸）"
+    }},
+    "versus_line": "一句话人设对比句（如：清冷小白花vs霸道男总裁）"
+  }},
+  "tags": ["标签1", "标签2", "标签3", "标签4", "标签5"],
+  "hook_lines": [
+    {{
+      "line": "一句话金句/hook",
+      "usage": "适合用在：书封/推荐位/短视频文案"
+    }}
+  ],
+  "synopsis_short": "50字以内的一句话简介",
+  "synopsis_medium": "约100字的作品简介，适合平台展示页",
+  "synopsis_long": "约300字的详细简介，适合详情页"
+}}
+
+要求：
+- 书名要朗朗上口、有辨识度，避免烂大街的取名套路（如"重生之xxx"、"xxx之xxx"）
+- 男女主的人设标签要精准概括角色核心特质，用网文读者熟悉的标签语言
+- versus_line 要有CP感和冲突感，让读者一看就想点进去
+- 标签要精准匹配目标读者的搜索习惯（如：重生、甜宠、先婚后爱、强强等）
+- 金句要有冲击力，能在3秒内抓住读者注意力
+- 简介要制造悬念，让人想点进去看正文，绝不能剧透结局
+- 如果故事不是传统男女主结构（如群像、无CP），protagonists中适当调整说明
+- 提供3-5个书名建议、5-8个标签、3条金句"""
