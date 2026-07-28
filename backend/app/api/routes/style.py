@@ -52,15 +52,15 @@ async def save_project_style(project_id: str, req: SaveStyleRequest, db: AsyncSe
 
 @router.post("/{project_id}/preview")
 async def preview_style(project_id: str, db: AsyncSession = Depends(get_db)):
-    from app.services.generation_service import _get_provider_from_settings, _get_project_context, _sse_event
+    from app.services.generation.helpers import get_provider_from_settings, get_project_context, sse_event
     from app.core.prompts.base import build_system_prompt
 
-    ctx = await _get_project_context(db, project_id)
-    provider = await _get_provider_from_settings(db)
+    ctx = await get_project_context(db, project_id)
+    provider = await get_provider_from_settings(db)
     project = ctx["project"]
 
     async def stream():
-        yield _sse_event("progress", {"message": "正在生成风格预览..."})
+        yield sse_event("progress", {"message": "正在生成风格预览..."})
 
         system_prompt = ctx["system_prompt"]
         user_prompt = f"""请用当前设定的写作风格，写一段500字左右的小说片段作为风格预览。
@@ -78,7 +78,7 @@ async def preview_style(project_id: str, db: AsyncSession = Depends(get_db)):
         full_text = ""
         async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=2048):
             full_text += chunk
-            yield _sse_event("content", {"text": chunk})
-        yield _sse_event("done", {"result": {"preview": full_text}})
+            yield sse_event("content", {"text": chunk})
+        yield sse_event("done", {"result": {"preview": full_text}})
 
     return StreamingResponse(stream(), media_type="text/event-stream")

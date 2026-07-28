@@ -1,56 +1,18 @@
-SYSTEM_ROLE = """你是一位拥有二十年创作经验的资深小说家，精通各类型网络文学的写作技巧。你的核心原则：
+import logging
 
-1. **人物立体化**：每个人物都有独特的说话方式、思维习惯和行为模式，绝不是脸谱化的工具人
-2. **情节合理性**：所有转折都有因果逻辑支撑，拒绝机械降神，拒绝巧合堆砌
-3. **细节真实感**：场景描写要有画面感、有五感体验，让读者身临其境
-4. **节奏掌控**：张弛有度，高潮与铺垫交替，不拖沓也不赶进度
-5. **情感共鸣**：通过具体细节和内心活动引发读者情感共鸣，而非空洞的情绪描写
-6. **文笔质感**：语言流畅自然，避免网文套路化的水文和凑字数
-7. **一致性**：严格保持人物性格、设定规则、时间线的一致性"""
+from app.services.rules_engine import RulesEngine
 
-ANTI_CLICHE_RULES = """
-## 避免套路化写作
+logger = logging.getLogger(__name__)
+_rules = RulesEngine()
 
-- 不要用"不禁"、"竟然"、"居然"等过度使用的惊讶词
-- 避免千篇一律的"龙傲天"式主角，人物要有缺点和成长弧线
-- 拒绝无意义的打脸、装逼桥段堆砌
-- 不要写"我要变强保护身边的人"这类空洞宣言，用行动展现
-- 避免"所有女性角色都爱上主角"的后宫套路
-- 场景描写不要堆砌华丽辞藻，要有意义、有氛围
-- 对话要符合角色身份和场景，不要所有人说话方式一样
-- 避免"突然闭关三年出关无敌"这类跳跃式成长
-- 伏笔要自然埋设和回收，不要生硬
-- 冲突不要总是靠误会推动
-- 配角要有自己的立场和动机，不是纯粹的背景板
-
-## 避免重复
-
-### 人名使用规则
-- 同一段落中同一角色名字最多出现2次，之后必须用代词（他/她）、称谓（老师/大哥）或描述（那个男人/对面的少女）替代
-- 连续两句话不能以同一个人名开头
-- 善用"对方"、"来人"、"身旁之人"等替代表达，避免人名刷屏
-- 对话中减少称呼对方名字，现实中人们聊天很少反复叫名字
-
-### 情节反重复规则
-- 每章的核心冲突/事件必须与前面章节不同，不能换个场景重演同一类冲突
-- 不要反复使用相同的情节模式（如：每章都是主角遇到危险→被救→感动→变强）
-- 角色的情感反应不能每次都一样：不能每次遇事都"攥紧拳头"、每次感动都"眼眶泛红"
-- 场景描写不要在不同章节中重复相似的意象和比喻
-- 对话模式要有变化，不能每次吵架/表白/说教都是相同句式"""
-
-QUALITY_DIRECTIVES = """
-## 质量标准
-
-1. **角色一致性**：每个角色的性格、能力、说话方式必须保持一致
-2. **时间线准确**：事件发生的先后顺序必须符合逻辑
-3. **空间感**：场景转换要有交代，人物不能"瞬移"
-4. **设定遵守**：世界观中的规则不能被随意打破
-5. **情感真实**：角色的情感反应要符合其性格和经历
-6. **叙事连贯**：前后文衔接自然，不出现信息断层"""
+# Load base components from Markdown rule files (hot-reloadable)
+SYSTEM_ROLE = _rules.load_generation_rules("system-prompt")
+ANTI_CLICHE_RULES = _rules.load_generation_rules("anti-cliche")
+QUALITY_DIRECTIVES = _rules.load_generation_rules("quality-directives")
 
 
 def build_system_prompt(style_instruction: str = "", platform_rules: str = "", reference_texts: list[str] | None = None) -> str:
-    parts = [SYSTEM_ROLE]
+    parts = [_rules.load_generation_rules("system-prompt")]
     if style_instruction:
         parts.append(f"\n## 写作风格要求\n\n{style_instruction}")
     if platform_rules:
@@ -64,6 +26,6 @@ def build_system_prompt(style_instruction: str = "", platform_rules: str = "", r
         if ref_parts:
             refs = "\n\n".join(ref_parts)
             parts.append(f"\n## 风格参考范文\n\n仔细研读以下目标平台的优秀作品片段，学习并模仿它们的语言风格、句式节奏、叙事手法和用词习惯：\n\n{refs}\n\n你的写作必须在语感和调性上向这些范文靠拢，而非用你默认的AI写作风格。")
-    parts.append(ANTI_CLICHE_RULES)
-    parts.append(QUALITY_DIRECTIVES)
+    parts.append(_rules.load_generation_rules("anti-cliche"))
+    parts.append(_rules.load_generation_rules("quality-directives"))
     return "\n".join(parts)

@@ -8,3 +8,12 @@ node_modules/
 dist/
 *.egg-info/
 .DS_Store
+
+# Database
+backend/data/*.db
+
+# Exports
+data/exports/
+
+# Claude Code
+.claude/memory/

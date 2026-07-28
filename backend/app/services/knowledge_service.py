@@ -8,7 +8,7 @@ from app.core.ai.json_parser import extract_json
 from app.core.prompts.base import build_system_prompt
 from app.core.prompts.steps import prompt_extract_narrative_state
 from app.models import Chapter, KnowledgeGraph, Project, Volume
-from app.services.generation_service import _get_provider_from_settings, _get_project_context, _sse_event
+from app.services.generation.helpers import get_provider_from_settings, get_project_context, sse_event
 
 
 async def get_knowledge_graph(db: AsyncSession, project_id: str) -> dict:
@@ -26,10 +26,10 @@ async def get_knowledge_graph(db: AsyncSession, project_id: str) -> dict:
 
 
 async def build_knowledge_graph_stream(db: AsyncSession, project_id: str) -> AsyncIterator[str]:
-    yield _sse_event("progress", {"message": "正在分析全文，构建知识图谱..."})
+    yield sse_event("progress", {"message": "正在分析全文，构建知识图谱..."})
 
-    ctx = await _get_project_context(db, project_id)
-    provider = await _get_provider_from_settings(db)
+    ctx = await get_project_context(db, project_id)
+    provider = await get_provider_from_settings(db)
 
     chapters = (await db.execute(
         select(Chapter)
@@ -39,7 +39,7 @@ async def build_knowledge_graph_stream(db: AsyncSession, project_id: str) -> Asy
     )).scalars().all()
 
     if not chapters:
-        yield _sse_event("error", {"message": "暂无已写章节"})
+        yield sse_event("error", {"message": "暂无已写章节"})
         return
 
     chapter_summaries = "\n".join([f"【{c.title}】{c.content[:500]}..." for c in chapters[:30]])
@@ -77,7 +77,7 @@ async def build_knowledge_graph_stream(db: AsyncSession, project_id: str) -> Asy
     full_text = ""
     async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=8192):
         full_text += chunk
-        yield _sse_event("content", {"text": chunk})
+        yield sse_event("content", {"text": chunk})
 
     parsed = extract_json(full_text)
     if parsed:
@@ -100,20 +100,20 @@ async def build_knowledge_graph_stream(db: AsyncSession, project_id: str) -> Asy
             )
             db.add(kg)
         await db.commit()
-        yield _sse_event("done", {"result": parsed})
+        yield sse_event("done", {"result": parsed})
     else:
-        yield _sse_event("done", {"result": {"raw_text": full_text}})
+        yield sse_event("done", {"result": {"raw_text": full_text}})
 
 
 async def cascade_analysis_stream(db: AsyncSession, project_id: str, chapter_id: str) -> AsyncIterator[str]:
-    yield _sse_event("progress", {"message": "正在分析修改影响范围..."})
+    yield sse_event("progress", {"message": "正在分析修改影响范围..."})
 
-    ctx = await _get_project_context(db, project_id)
-    provider = await _get_provider_from_settings(db)
+    ctx = await get_project_context(db, project_id)
+    provider = await get_provider_from_settings(db)
 
     target = (await db.execute(select(Chapter).where(Chapter.id == chapter_id))).scalar_one_or_none()
     if not target:
-        yield _sse_event("error", {"message": "章节不存在"})
+        yield sse_event("error", {"message": "章节不存在"})
         return
 
     kg = await get_knowledge_graph(db, project_id)
@@ -129,7 +129,7 @@ async def cascade_analysis_stream(db: AsyncSession, project_id: str, chapter_id:
     affected_chapters = later_chapters[target_idx + 1:target_idx + 21] if target_idx >= 0 else []
 
     if not affected_chapters:
-        yield _sse_event("done", {"result": {"affected": [], "summary": "后续无已写章节，无需级联更新"}})
+        yield sse_event("done", {"result": {"affected": [], "summary": "后续无已写章节，无需级联更新"}})
         return
 
     chapters_info = "\n".join([f"- {c.title}: {c.content[:200]}..." for c in affected_chapters[:10]])
@@ -160,26 +160,26 @@ async def cascade_analysis_stream(db: AsyncSession, project_id: str, chapter_id:
     full_text = ""
     async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=4096):
         full_text += chunk
-        yield _sse_event("content", {"text": chunk})
+        yield sse_event("content", {"text": chunk})
 
     parsed = extract_json(full_text)
     if parsed:
-        yield _sse_event("done", {"result": parsed})
+        yield sse_event("done", {"result": parsed})
     else:
-        yield _sse_event("done", {"result": {"raw_text": full_text}})
+        yield sse_event("done", {"result": {"raw_text": full_text}})
 
 
 async def update_narrative_state_stream(
     db: AsyncSession, project_id: str, chapter_id: str
 ) -> AsyncIterator[str]:
-    yield _sse_event("progress", {"message": "正在更新叙事状态..."})
+    yield sse_event("progress", {"message": "正在更新叙事状态..."})
 
-    ctx = await _get_project_context(db, project_id)
-    provider = await _get_provider_from_settings(db)
+    ctx = await get_project_context(db, project_id)
+    provider = await get_provider_from_settings(db)
 
     chapter = (await db.execute(select(Chapter).where(Chapter.id == chapter_id))).scalar_one_or_none()
     if not chapter or not chapter.content:
-        yield _sse_event("error", {"message": "章节不存在或无内容"})
+        yield sse_event("error", {"message": "章节不存在或无内容"})
         return
 
     current_state = await get_knowledge_graph(db, project_id)
@@ -195,7 +195,7 @@ async def update_narrative_state_stream(
     full_text = ""
     async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=8192):
         full_text += chunk
-        yield _sse_event("content", {"text": chunk})
+        yield sse_event("content", {"text": chunk})
 
     parsed = extract_json(full_text)
     if parsed:
@@ -222,18 +222,18 @@ async def update_narrative_state_stream(
             )
             db.add(kg)
         await db.commit()
-        yield _sse_event("done", {"result": parsed})
+        yield sse_event("done", {"result": parsed})
     else:
-        yield _sse_event("done", {"result": {"raw_text": full_text}})
+        yield sse_event("done", {"result": {"raw_text": full_text}})
 
 
 async def cascade_analysis_upstream_stream(
     db: AsyncSession, project_id: str, change_type: str, change_summary: str = ""
 ) -> AsyncIterator[str]:
-    yield _sse_event("progress", {"message": f"正在分析{change_type}修改对已写章节的影响..."})
+    yield sse_event("progress", {"message": f"正在分析{change_type}修改对已写章节的影响..."})
 
-    ctx = await _get_project_context(db, project_id)
-    provider = await _get_provider_from_settings(db)
+    ctx = await get_project_context(db, project_id)
+    provider = await get_provider_from_settings(db)
 
     chapters = (await db.execute(
         select(Chapter)
@@ -243,7 +243,7 @@ async def cascade_analysis_upstream_stream(
     )).scalars().all()
 
     if not chapters:
-        yield _sse_event("done", {"result": {"affected": [], "summary": "暂无已写章节"}})
+        yield sse_event("done", {"result": {"affected": [], "summary": "暂无已写章节"}})
         return
 
     chapters_info = "\n".join([f"- {c.title}: {c.summary}" for c in chapters[:20]])
@@ -277,10 +277,10 @@ async def cascade_analysis_upstream_stream(
     full_text = ""
     async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=4096):
         full_text += chunk
-        yield _sse_event("content", {"text": chunk})
+        yield sse_event("content", {"text": chunk})
 
     parsed = extract_json(full_text)
     if parsed:
-        yield _sse_event("done", {"result": parsed})
+        yield sse_event("done", {"result": parsed})
     else:
-        yield _sse_event("done", {"result": {"raw_text": full_text}})
+        yield sse_event("done", {"result": {"raw_text": full_text}})
