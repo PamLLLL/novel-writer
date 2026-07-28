@@ -36,7 +36,7 @@ async def generate_volumes_stream(db: AsyncSession, project_id: str, user_direct
 
     system_prompt = ctx["system_prompt"]
     full_text = ""
-    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=6144):
+    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=16384):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 

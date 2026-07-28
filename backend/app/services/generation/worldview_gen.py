@@ -23,11 +23,12 @@ async def generate_worldview_stream(db: AsyncSession, project_id: str, user_dire
         settings_json=json.dumps(settings_content, ensure_ascii=False),
         characters_json=ctx["characters_json"],
         user_direction=user_direction,
+        target_words=project.target_words,
     )
 
     system_prompt = ctx["system_prompt"]
     full_text = ""
-    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=6144):
+    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=8192):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 
