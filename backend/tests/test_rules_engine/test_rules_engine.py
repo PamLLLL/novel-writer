@@ -10,7 +10,7 @@ def engine():
 def test_load_system_prompt(engine):
     content = engine.load_generation_rules("system-prompt")
     assert content
-    assert "小说家" in content
+    assert "写作" in content
 
 
 def test_load_anti_cliche(engine):
@@ -37,7 +37,7 @@ def test_load_optional_missing(engine):
 
 def test_build_system_base(engine):
     base = engine.build_system_base()
-    assert "小说家" in base
+    assert "写作" in base
     assert "套路" in base
     assert "质量" in base
 

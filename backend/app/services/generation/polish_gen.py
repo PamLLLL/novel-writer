@@ -41,7 +41,7 @@ async def polish_chapter_stream(
     )
 
     full_text = ""
-    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=16384):
+    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, temperature=0.85, max_tokens=16384):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 
@@ -143,7 +143,7 @@ async def apply_quality_fix_stream(
 请直接输出修改后的完整章节内容，不要任何解释或标注。"""
 
     full_text = ""
-    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=16384):
+    async for chunk in provider.stream_generate(system_prompt, user_prompt, temperature=0.85, max_tokens=16384):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 

@@ -25,7 +25,14 @@ def build_system_prompt(style_instruction: str = "", platform_rules: str = "", r
                 ref_parts.append(f"### 范文{i}\n\n{trimmed}")
         if ref_parts:
             refs = "\n\n".join(ref_parts)
-            parts.append(f"\n## 风格参考范文\n\n仔细研读以下目标平台的优秀作品片段，学习并模仿它们的语言风格、句式节奏、叙事手法和用词习惯：\n\n{refs}\n\n你的写作必须在语感和调性上向这些范文靠拢，而非用你默认的AI写作风格。")
+            parts.append(
+                f"\n## 风格参考范文（你的写作标杆）\n\n"
+                f"以下是目标平台的优秀作品片段。你的每一个句子都要问自己：'这句话放在范文里违和吗？'如果违和，重写。\n"
+                f"你的句式长度、用词密度、对话比例都要向范文看齐，而不是用你默认的写作习惯。\n\n"
+                f"{refs}"
+            )
+    parts.append(_rules.load_generation_rules("writing-examples"))
+    parts.append(_rules.load_generation_rules("anti-ai-substitution"))
     parts.append(_rules.load_generation_rules("anti-cliche"))
     parts.append(_rules.load_generation_rules("quality-directives"))
     return "\n".join(parts)

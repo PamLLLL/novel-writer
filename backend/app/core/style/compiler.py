@@ -59,6 +59,9 @@ def get_platform_rules(platform: str) -> str:
     if rules.get("immersion_rules"):
         parts.append(f"代入感技巧：{rules['immersion_rules']}")
 
+    if rules.get("editorial_guide"):
+        parts.append(rules["editorial_guide"])
+
     if rules.get("forbidden_patterns"):
         items = "\n".join(f"  - {p}" for p in rules["forbidden_patterns"])
         parts.append(f"禁忌事项：\n{items}")

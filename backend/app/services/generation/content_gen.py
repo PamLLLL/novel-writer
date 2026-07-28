@@ -79,11 +79,13 @@ async def generate_chapter_content_stream(
         user_direction=user_direction,
         detailed_outline=detailed_outline,
         narrative_state=narrative_state if has_narrative else None,
+        is_first_chapter=(current_idx == 0),
+        platform=ctx["project"].target_platform or "",
     )
 
     system_prompt = ctx["system_prompt"]
     full_text = ""
-    async for chunk in provider.stream_generate(system_prompt, user_prompt, max_tokens=16384):
+    async for chunk in provider.stream_generate(system_prompt, user_prompt, temperature=0.88, max_tokens=16384):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 
@@ -150,7 +152,7 @@ async def rewrite_chapter_stream(
 直接输出改写后的内容："""
 
     full_text = ""
-    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=16384):
+    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, temperature=0.88, max_tokens=16384):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 
@@ -204,7 +206,7 @@ async def continue_chapter_stream(
 直接输出续写内容，不要任何标注："""
 
     full_text = ""
-    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, max_tokens=8192):
+    async for chunk in provider.stream_generate(ctx["system_prompt"], user_prompt, temperature=0.88, max_tokens=8192):
         full_text += chunk
         yield sse_event("content", {"text": chunk})
 

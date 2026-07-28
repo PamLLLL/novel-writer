@@ -37,6 +37,24 @@ def prompt_settings(genre: str, concept: str, target_words: int, platform: str =
 - 要考虑目标字数，设定复杂度要匹配篇幅"""
 
 
+def _characters_requirements(target_words: int) -> str:
+    if target_words <= 50000:
+        return """要求（短篇模式——惜人如金）：
+- 总人物数严格控制在3-5人，每多一个人物就多一道阅读门槛
+- 主角1个，需要有清晰的性格缺陷和成长空间
+- 对手/反派1个，要有合理的动机（不是纯粹的恶）
+- 关键配角1-3个，每个都必须有记忆点和叙事功能（推动情节或揭示主角）
+- personality 控制在80字以内，抓住最核心的1-2个特质
+- background 控制在100字以内，只写与故事直接相关的经历
+- 人物关系简洁明了，读者不需要画关系图就能记住"""
+    return """要求：
+- 主角至少1个，需要有清晰的性格缺陷和成长空间
+- 反派/对手至少1个，要有合理的动机（不是纯粹的恶）
+- 重要配角2-4个，各有特色和作用
+- 人物之间要有关系网络和潜在的冲突点
+- 根据篇幅调整人物数量：中篇5-8人，长篇8-15人"""
+
+
 def prompt_characters(genre: str, concept: str, settings_json: str, target_words: int, user_direction: str = "") -> str:
     return f"""{_build_direction_block(user_direction)}基于以下小说设定，生成完整的人物体系。
 
@@ -64,12 +82,7 @@ def prompt_characters(genre: str, concept: str, settings_json: str, target_words
   ]
 }}
 
-要求：
-- 主角至少1个，需要有清晰的性格缺陷和成长空间
-- 反派/对手至少1个，要有合理的动机（不是纯粹的恶）
-- 重要配角2-4个，各有特色和作用
-- 人物之间要有关系网络和潜在的冲突点
-- 根据篇幅调整人物数量：短篇3-5人，中篇5-8人，长篇8-15人
+{_characters_requirements(target_words)}
 
 命名规则（严格执行）：
 - 所有角色的姓氏必须互不相同，禁止出现两个角色同姓
@@ -79,7 +92,32 @@ def prompt_characters(genre: str, concept: str, settings_json: str, target_words
 - 名字风格要符合故事背景（古风用古风名，都市用现代名）"""
 
 
-def prompt_worldview(genre: str, concept: str, settings_json: str, characters_json: str, user_direction: str = "") -> str:
+def prompt_worldview(genre: str, concept: str, settings_json: str, characters_json: str, user_direction: str = "", target_words: int = 0) -> str:
+    if target_words and target_words <= 50000:
+        return f"""{_build_direction_block(user_direction)}基于以下小说设定和人物，简要构建故事背景。
+
+小说类型：{genre}
+核心创意：{concept}
+目标字数：约{target_words}字（短篇）
+基础设定：{settings_json}
+人物体系：{characters_json}
+
+这是一个短篇故事，世界观只需要让读者知道故事发生在什么环境下即可。不需要复杂的体系构建。
+
+请以JSON格式返回：
+{{
+  "world_type": "世界观类型（现代都市/古代武侠/异界玄幻/未来科幻等）",
+  "geography": "故事发生的主要场景（1-3个具体地点，简要描述即可）",
+  "society": "社会环境（一句话交代人物所处的社会背景）",
+  "rules": ["影响剧情的关键规则1", "影响剧情的关键规则2"]
+}}
+
+要求：
+- 短篇世界观要轻量：一段话能交代完的背景，不要写成百科词条
+- 只描述与故事冲突直接相关的设定，其余留白
+- 场景控制在1-3个，读者不需要地图就能跟上
+- 世界观服务于情节和人物，不要为设定而设定"""
+
     return f"""{_build_direction_block(user_direction)}基于以下小说设定和人物，构建世界观体系。
 
 小说类型：{genre}
@@ -323,6 +361,8 @@ def prompt_chapter_content(
     user_direction: str = "",
     detailed_outline: dict | None = None,
     narrative_state: dict | None = None,
+    is_first_chapter: bool = False,
+    platform: str = "",
 ) -> str:
     import json
 
@@ -345,6 +385,30 @@ def prompt_chapter_content(
 
 {ns[:4000]}
 
+"""
+
+    first_chapter_block = ""
+    if is_first_chapter:
+        first_chapter_block = """
+## 第一章开篇强制规则（最高优先级）
+
+这是全文的第一章，开篇决定读者是否继续阅读。
+- 第一句话必须是事件、动作或对话，严禁环境描写或背景介绍开头
+- 前200字内抛出全文最抓人的悬念或冲突，让读者立刻想知道"然后呢"
+- 前1000字内明确主角的核心欲望和动机
+- 开篇出场人物不超过3个，降低阅读门槛
+"""
+
+    platform_writing_block = ""
+    if "知乎" in platform:
+        platform_writing_block = """
+## 知乎盐选叙事规则（强制执行）
+
+- 使用第一人称"我"叙事，所有场景通过"我"的视角呈现
+- 内心活动直接写成叙述，不用"我心想""我暗道""我不禁想到"
+- 示范：直接写"虚张声势罢了"，不写"我心想他在虚张声势"
+- 每段结尾有钩子——一个悬念、一个反转、一个情绪拐点
+- 段落3-5句为宜，关键转折可以独立一句成段
 """
 
     word_min = int(chapter_word_target * 0.85)
@@ -400,7 +464,7 @@ def prompt_chapter_content(
 """
 
         return f"""{_build_direction_block(user_direction)}请撰写以下章节的完整正文。
-{prev_block}{narrative_block}
+{prev_block}{narrative_block}{first_chapter_block}{platform_writing_block}
 ## 场景细纲（这是你的创作合同，必须严格遵守）
 
 以下场景细纲是你的创作蓝图。你必须按此蓝图写作，不得自行增减场景、替换角色或改变事件走向。
@@ -418,24 +482,25 @@ def prompt_chapter_content(
 
 写作要求：
 - 【最重要】按照场景细纲中的场景顺序逐场景写作，每个场景的 key_beats 都必须体现在正文中
-- 本章开头必须自然承接上一章结尾，不能有任何断裂感
+- 本章开头必须自然承接上一章结尾（如果是第一章则直接进入事件）
 - 每个场景的 sensory_anchors 必须融入描写中，营造沉浸感
 - 对话要遵循 dialogue_notes 中的指导，不同角色说话方式不同
 - 场景之间的过渡要使用 transition_to_next 中的指导
-- emotional_arc 要通过细节展现（表情、动作、环境变化），不要直接写"他感到紧张"
-- 开篇要抓人，不要用"阳光洒在..."之类的陈词滥调
+- emotional_arc 通过细节展现（表情、动作、环境变化）——写"他把杯子往桌上一墩"，而不是"他感到愤怒"
 - 章末要有悬念或情感钩子
 
-避免重复（严格执行）：
-- 人名控制：同一段落中角色名字最多出现2次，之后必须用代词（他/她）、称谓或描述替代。连续两句不能以同一个名字开头
-- 情节不重复：本章的核心事件和冲突模式不能与前面章节雷同。如果前情提要中出现过某类冲突（如争吵、追杀、误会），本章必须用不同的方式推进故事
-- 反应不重复：角色面对不同事件的情绪反应要有变化，不能每次都"攥紧拳头"或"眼眶泛红"
-- 描写不重复：不同场景的描写要用不同的意象和比喻，避免全文都是"月光如水"、"心如刀割"
+文笔要求：
+- 用动词和具体动作代替形容词堆砌和情绪标签
+- 一句话只做一件事，超过25字的句子考虑拆开
+- 环境描写最多1-2句，必须服务于情绪或情节
+- 对话短促有力，穿插动作打断对话流，用动作代替"说"字
+- 同一段落中角色名字最多出现2次，之后用代词或称谓替代
+- 每章的冲突模式、角色情绪反应、意象比喻都要与前面章节不同
 
 直接输出小说正文，不要任何解释或标注。"""
 
     return f"""{_build_direction_block(user_direction)}请撰写以下章节的完整正文。
-{prev_block}{narrative_block}
+{prev_block}{narrative_block}{first_chapter_block}{platform_writing_block}
 小说类型：{genre}
 章节标题：{chapter_title}
 章节摘要：{chapter_summary}
@@ -450,18 +515,18 @@ def prompt_chapter_content(
 不得自行替换角色、改变事件走向或省略摘要中的关键情节。
 {word_control_block}
 写作要求：
-- 【最重要】本章开头必须自然承接上一章结尾，不能有任何断裂感。如果上一章提供了结尾原文，本章的第一段要在场景、情绪、人物状态上与之无缝衔接
-- 开篇要抓人，不要用"阳光洒在..."之类的陈词滥调
-- 对话要生动，符合角色性格
-- 场景描写要有五感体验
+- 【最重要】本章开头必须自然承接上一章结尾（如果是第一章则直接进入事件）
+- 对话短促有力，符合角色性格，用动作代替"说"字
+- 场景描写用具体感官细节（"只听到墙上时钟的滴答声"而非"安静的房间"）
 - 保持与前文中人物名称、关系、状态的一致性
 - 章末要有悬念或情感钩子
 
-避免重复（严格执行）：
-- 人名控制：同一段落中角色名字最多出现2次，之后必须用代词（他/她）、称谓或描述替代。连续两句不能以同一个名字开头
-- 情节不重复：本章的核心事件和冲突模式不能与前面章节雷同。如果前情提要中出现过某类冲突，本章必须用不同的方式推进故事
-- 反应不重复：角色面对不同事件的情绪反应要有变化，不能每次都用相同的身体语言
-- 描写不重复：不同场景的描写要用不同的意象和比喻
+文笔要求：
+- 用动词和具体动作代替形容词堆砌和情绪标签
+- 一句话只做一件事，超过25字的句子考虑拆开
+- 环境描写最多1-2句，必须服务于情绪或情节
+- 同一段落中角色名字最多出现2次，之后用代词或称谓替代
+- 每章的冲突模式、角色情绪反应、意象比喻都要与前面章节不同
 
 直接输出小说正文，不要任何解释或标注。"""
 
