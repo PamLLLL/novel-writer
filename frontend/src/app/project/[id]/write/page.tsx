@@ -86,6 +86,9 @@ export default function WritePage() {
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
 
+  // AI generate direction
+  const [generateDirection, setGenerateDirection] = useState("");
+
   // AI rewrite state
   const [showRewrite, setShowRewrite] = useState(false);
   const [rewriteInstruction, setRewriteInstruction] = useState("");
@@ -204,7 +207,7 @@ export default function WritePage() {
     );
     start(
       url,
-      { word_target: wordTarget },
+      { word_target: wordTarget, user_direction: generateDirection },
       {
         onContent: (text) => {
           streamRef.current += text;
@@ -348,7 +351,7 @@ export default function WritePage() {
       selectedChapterId;
     start(
       url,
-      { user_direction: "", word_target: continueWordTarget },
+      { user_direction: generateDirection, word_target: continueWordTarget },
       {
         onContent: (text) => {
           streamRef.current += text;
@@ -636,6 +639,17 @@ export default function WritePage() {
                   保存
                 </Button>
               </div>
+            </div>
+
+            {/* Direction input */}
+            <div className="px-4 py-2 border-b border-border bg-muted/10">
+              <Textarea
+                placeholder={'给 AI 提供创作方向（可选，如：第一句话必须是"算了，我来嫁。"、这章节奏要快每千字一个看点...）'}
+                value={generateDirection}
+                onChange={(e) => setGenerateDirection(e.target.value)}
+                rows={2}
+                className="text-sm"
+              />
             </div>
 
             {/* Streaming progress */}
