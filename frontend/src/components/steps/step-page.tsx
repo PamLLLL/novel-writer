@@ -67,10 +67,9 @@ export function StepPage({
       },
       onProgress: (msg) => setProgress(msg),
       onDone: (result) => {
-        setStreamText("");
         setProgress("");
         onGenerated(result);
-        toast.success("生成完成");
+        toast.success("生成完成，原始输出保留在下方供参考");
       },
       onError: (msg) => {
         toast.error("生成失败", { description: msg });
@@ -137,12 +136,20 @@ export function StepPage({
         />
       </div>
 
-      {isStreaming && (
+      {(isStreaming || streamText) && (
         <div className="mb-6 rounded-lg border border-border bg-muted/30 p-4">
           {progress && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               {progress}
+            </div>
+          )}
+          {!isStreaming && streamText && (
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-muted-foreground">AI 原始输出（供参考）</span>
+              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setStreamText("")}>
+                收起
+              </Button>
             </div>
           )}
           <pre className="text-sm whitespace-pre-wrap max-h-96 overflow-auto font-mono">
