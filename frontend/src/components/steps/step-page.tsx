@@ -48,6 +48,7 @@ export function StepPage({
   const [saving, setSaving] = useState(false);
   const [navigating, setNavigating] = useState<"prev" | "next" | null>(null);
   const [streamText, setStreamText] = useState("");
+  const [showRawOutput, setShowRawOutput] = useState(true);
   const [progress, setProgress] = useState("");
   const { start, stop, isStreaming } = useSSE();
   const streamRef = useRef("");
@@ -60,6 +61,7 @@ export function StepPage({
     setStreamText("");
     streamRef.current = "";
     setProgress("");
+    setShowRawOutput(true);
     start(generateUrl, { user_direction: direction }, {
       onContent: (text) => {
         streamRef.current += text;
@@ -147,14 +149,16 @@ export function StepPage({
           {!isStreaming && streamText && (
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-muted-foreground">AI 原始输出（供参考）</span>
-              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setStreamText("")}>
-                收起
+              <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => setShowRawOutput((v) => !v)}>
+                {showRawOutput ? "收起" : "展开"}
               </Button>
             </div>
           )}
-          <pre className="text-sm whitespace-pre-wrap max-h-96 overflow-auto font-mono">
-            {streamText || "等待响应..."}
-          </pre>
+          {(isStreaming || showRawOutput) && (
+            <pre className="text-sm whitespace-pre-wrap max-h-96 overflow-auto font-mono">
+              {streamText || "等待响应..."}
+            </pre>
+          )}
         </div>
       )}
 
